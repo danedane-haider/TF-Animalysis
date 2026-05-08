@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from tf_transforms.transforms import EleSpectrogram, MaskedEleSpectrogram
+from tf_transforms.utils_harmonic_mask import load_f0_csv
 
 SAMPLE_RATE = 16000
 AUDIO_PATH = PROJECT_ROOT / "data/test_examples_rumbles/ADDO2012A008.WAV_a0014_10.wav"
@@ -32,13 +33,14 @@ transform_kwargs = dict(
 regular_transform = EleSpectrogram(**transform_kwargs)
 masked_transform = MaskedEleSpectrogram(**transform_kwargs)
 
+# Drop the 0.5 factor if your CSV already stores f0 rather than F1.
+f0_hz = load_f0_csv(F0_PATH) * 0.5
 regular_spec = regular_transform(audio_torch)
 masked_spec = masked_transform(
     audio_torch,
-    f0_contour_path=F0_PATH,
+    f0_hz,
     width_bins=1,
     n_harmonics=32,
-    assume_frequency_is_f1=True,
 )
 
 print(f"EleSpectrogram output shape: {regular_spec.shape}")

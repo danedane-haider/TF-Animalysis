@@ -1,16 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import soundfile as sf
 import torch
-import torch.nn.functional as F
 
 from pathlib import Path
-from typing import Optional, Union
 
 from .utils_elelet import circ_conv, circ_conv_numpy
 from .utils_auditory_scales import audfilters
 from .utils_elespectrogram import melscale_fbanks
-from .utils_harmonic_mask import masked_spectrogram
+from .utils_harmonic_mask import load_f0_csv, masked_spectrogram
 
 
 #################################    ELELET TRANSFORM    #################################
@@ -144,13 +141,11 @@ class Elelet:
         else:
             ax.pcolor(c, cmap=cmap)
 
-        # y-axis: center frequencies
         fc_fmin = self.fc[fc > self.fmin]
         locs = np.linspace(self.fmin, c.shape[0] - 1, min(len(fc_fmin), 10)).astype(int)
         ax.set_yticks(locs)
         ax.set_yticklabels([int(np.round(fc_fmin[i])) for i in locs])
 
-        # x-axis: time
         if L is not None:
             num_time_labels = 10
             xticks = np.linspace(0, c.shape[1] - 1, num_time_labels)
@@ -235,13 +230,11 @@ class EleSpectrogram(torch.nn.Module):
         self.scale = scale
         self.drop_empty_filters = bool(drop_empty_filters)
 
-        # Create window
         if window_fn is None:
             self.window = torch.hann_window(self.win_length)
         else:
             self.window = window_fn(self.win_length)
 
-        # Create mel filterbank
         n_freqs = n_fft // 2 + 1 if onesided else n_fft
         self.mel_filterbank = melscale_fbanks(
             n_freqs=n_freqs,
@@ -257,19 +250,9 @@ class EleSpectrogram(torch.nn.Module):
         # Update num_channels to reflect actual number of filters (may be less due to zero removal)
         self.n_mels = self.mel_filterbank.shape[1]
 
-    def forward(self, waveform: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            waveform (torch.Tensor): Input waveform of shape (..., time)
-
-        Returns:
-            torch.Tensor: Mel spectrogram of shape (..., num_channels, time)
-        """
-        # Move window to same device as waveform
-        window = self.window.to(waveform.device)
-
-        # Compute STFT
-        spec = torch.stft(
+    def _stft(self, waveform: torch.Tensor) -> torch.Tensor:
+        window = self.window.to(device=waveform.device, dtype=waveform.dtype)
+        return torch.stft(
             waveform,
             n_fft=self.n_fft,
             hop_length=self.hop_length,
@@ -282,14 +265,18 @@ class EleSpectrogram(torch.nn.Module):
             return_complex=True,
         )
 
-        # Compute power spectrogram
-        spec = torch.abs(spec) ** self.power
+    def _power_spectrogram(self, spec: torch.Tensor) -> torch.Tensor:
+        spec = torch.abs(spec)
+        if self.power != 1.0:
+            spec = spec ** self.power
+        return spec
 
-        # Apply mel filterbank
-        mel_filterbank = self.mel_filterbank.to(waveform.device)
-        mel_spec = torch.matmul(spec.transpose(-2, -1), mel_filterbank).transpose(-2, -1)
+    def _apply_filterbank(self, spec: torch.Tensor) -> torch.Tensor:
+        mel_filterbank = self.mel_filterbank.to(device=spec.device, dtype=spec.dtype)
+        return torch.matmul(spec.transpose(-2, -1), mel_filterbank).transpose(-2, -1)
 
-        return mel_spec
+    def forward(self, waveform: torch.Tensor) -> torch.Tensor:
+        return self._apply_filterbank(self._power_spectrogram(self._stft(waveform)))
     
 
 class EleCC(torch.nn.Module):
@@ -327,12 +314,10 @@ class EleCC(torch.nn.Module):
         self.norm = norm
         self.log_mels = log_mels
 
-        # Create EleSpectrogram
         if melkwargs is None:
             melkwargs = {}
         self.mel_spectrogram = EleSpectrogram(sample_rate=sample_rate, **melkwargs)
 
-        # Precompute DCT matrix
         n_mels = self.mel_spectrogram.n_mels
         self.dct_mat = self._create_dct_matrix(n_mfcc, n_mels, dct_type, norm)
 
@@ -359,14 +344,11 @@ class EleCC(torch.nn.Module):
         Returns:
             torch.Tensor: EleCC features of shape (..., n_mfcc, time)
         """
-        # Compute mel spectrogram
         mel_spec = self.mel_spectrogram(waveform)
 
-        # Take log
         if self.log_mels:
             mel_spec = torch.log(mel_spec + 1e-10)
 
-        # Apply DCT
         dct_mat = self.dct_mat.to(waveform.device)
         mfcc = torch.matmul(dct_mat, mel_spec)
 
@@ -382,22 +364,18 @@ class MaskedEleSpectrogram(EleSpectrogram):
     def forward(
         self,
         waveform: torch.Tensor,
-        f0_contour: Optional[Union[torch.Tensor, np.ndarray]] = None,
-        f0_contour_path: Optional[Union[str, Path]] = None,
-        wav_path: Optional[Union[str, Path]] = None,
+        f0_hz: torch.Tensor | np.ndarray | str | Path,
         width_bins: int = 1,
         n_harmonics: int = 32,
-        kernel_time_radius: Optional[int] = None,
-        kernel_freq_radius: Optional[int] = None,
         kernel_floor: float = 1e-3,
-        assume_frequency_is_f1: Optional[bool] = None,
-        return_details: bool = False,
+        return_mask: bool = False,
     ):
-        masked_spec, mask_details = masked_spectrogram(
+        if isinstance(f0_hz, (str, Path)):
+            f0_hz = load_f0_csv(f0_hz)
+
+        masked_spec, mask = masked_spectrogram(
             waveform=waveform,
-            f0_contour=f0_contour,
-            f0_contour_path=f0_contour_path,
-            wav_path=wav_path,
+            f0_hz=f0_hz,
             width_bins=width_bins,
             n_harmonics=n_harmonics,
             sample_rate=self.sample_rate,
@@ -409,20 +387,11 @@ class MaskedEleSpectrogram(EleSpectrogram):
             center=self.center,
             pad_mode=self.pad_mode,
             onesided=self.onesided,
-            kernel_time_radius=kernel_time_radius,
-            kernel_freq_radius=kernel_freq_radius,
             kernel_floor=kernel_floor,
-            assume_frequency_is_f1=assume_frequency_is_f1,
-            return_complex=False,
-            return_details=True,
+            return_mask=True,
         )
+        mel_spec = self._apply_filterbank(masked_spec)
 
-        mel_filterbank = self.mel_filterbank.to(masked_spec.device)
-        mel_spec = torch.matmul(masked_spec.transpose(-2, -1), mel_filterbank).transpose(-2, -1)
-
-        if not return_details:
-            return mel_spec
-
-        mask_details["masked_spectrogram"] = masked_spec
-        mask_details["masked_elespectrogram"] = mel_spec
-        return mel_spec, mask_details
+        if return_mask:
+            return mel_spec, mask
+        return mel_spec

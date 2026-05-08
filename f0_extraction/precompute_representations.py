@@ -12,7 +12,7 @@ import sys
 
 # Import Elelet transform
 sys.path.append(str(Path(__file__).parent.parent))
-from preprocessing.transforms import Elelet
+from tf_transforms.transforms import Elelet
 import torch
 
 

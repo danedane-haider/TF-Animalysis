@@ -17,8 +17,8 @@ import sys
 
 # Import Elelet transform and utilities
 sys.path.append(str(Path(__file__).parent.parent))
-from preprocessing.transforms import Elelet
-from elelet.utils import freqtoaud, audtofreq
+from tf_transforms.transforms import Elelet
+from tf_transforms.utils_auditory_scales import freqtoaud, audtofreq
 import torch
 
 

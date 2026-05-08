@@ -14,7 +14,7 @@ from tqdm import tqdm
 import argparse
 import sys
 sys.path.append(str(Path(__file__).parent))
-from transforms import Elelet
+from tf_transforms.transforms import Elelet
 
 
 def highpass_filter(audio, sr, cutoff=10.0, order=5):
@@ -65,8 +65,6 @@ def extract_f0_pyin(audio, sr=16000, frame_resolution=0.016, fmin=5, fmax=50,
 
     if extract_f1:
         # Extract F1 (first overtone at 2×F0) then divide by 2
-        # More robust when F1 has more energy than F0 (common in elephant rumbles)
-        # If F0 is 5-35 Hz, F1 is 10-70 Hz
         f1_min = fmin * 2
         f1_max = fmax * 2
 
@@ -90,43 +88,6 @@ def extract_f0_pyin(audio, sr=16000, frame_resolution=0.016, fmin=5, fmax=50,
 
         # Divide by 2 to get F0 from F1
         f0 = f1 / 2.0
-
-    elif use_pitch_shift:
-        # Pitch shift approach for very low frequencies
-        # Shift up by N octaves, extract f0, then divide by 2^N
-        shift_factor = 2 ** pitch_shift_octaves
-
-        # Pitch shift audio up
-        audio_shifted = librosa.effects.pitch_shift(
-            audio_filtered,
-            sr=sr,
-            n_steps=pitch_shift_octaves * 12  # 12 semitones per octave
-        )
-
-        # Adjusted frequency range for shifted audio
-        shifted_fmin = fmin * shift_factor
-        shifted_fmax = fmax * shift_factor
-
-        # Can use smaller frame length now (higher frequencies)
-        # For 20 Hz (5 Hz shifted up 2 octaves): 2 periods = 0.1s = 1600 samples
-        frame_length = 2048*4
-
-        f0_shifted, voiced_flag, voiced_probs = librosa.pyin(
-            audio_shifted,
-            fmin=shifted_fmin*2,
-            fmax=shifted_fmax*2,
-            sr=sr,
-            frame_length=frame_length,
-            hop_length=hop_length,
-            center=True,
-            pad_mode='constant'
-        )
-
-        # Convert NaN to 0
-        f0_shifted = np.nan_to_num(f0_shifted, nan=0.0)
-
-        # Divide by shift factor to get true fundamental
-        f0 = f0_shifted / shift_factor
 
     else:
         # Original approach: direct pYIN on low frequencies
@@ -594,10 +555,6 @@ Examples:
                         help='Minimum f0 frequency (Hz, default: 10)')
     parser.add_argument('--fmax', type=float, default=50,
                         help='Maximum f0 frequency (Hz, default: 40)')
-    parser.add_argument('--use_pitch_shift', action='store_true',
-                        help='Use pitch shifting for better f0 extraction at low frequencies')
-    parser.add_argument('--pitch_shift_octaves', type=int, default=2,
-                        help='Number of octaves to shift up (default: 2)')
     parser.add_argument('--extract_f1', action='store_true',
                         help='Extract F1 (first overtone at 2×F0) then divide by 2. Recommended when F1 is stronger than F0.')
     parser.add_argument('--use_elelet', type=bool, default=True,

@@ -24,12 +24,8 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
-try:
-    from preprocessing.transforms import Elelet
-except ImportError:  # pragma: no cover
-    from transforms import Elelet
-
-from elelet.utils import audtofreq, freqtoaud
+from tf_transforms.transforms import Elelet
+from tf_transforms.utils_auditory_scales import freqtoaud, audtofreq
 
 
 def _to_numpy(x: torch.Tensor | np.ndarray | float) -> np.ndarray:
