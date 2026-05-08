@@ -1,0 +1,23 @@
+[project]
+name = "tf-animalysis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy",
+    "pandas",
+    "tqdm",
+    "easydict",
+    "omegaconf",
+    "torch",
+    "torchaudio",
+    "torchvision",
+    "librosa",
+    "soundfile",
+    "scipy",
+    "hybra>=2025.11.2",
+    "wandb>=0.23.0",
+    "torchcodec",
+    "sounddevice>=0.5.3",
+]

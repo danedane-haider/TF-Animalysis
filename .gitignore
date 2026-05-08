@@ -1,0 +1,61 @@
+# macOS / editor noise
+.DS_Store
+._*
+.idea/
+.vscode/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.coverage
+htmlcov/
+
+# Virtual environments and local env files
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Build and packaging outputs
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and temporary files
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+
+# Experiment tracking and generated training artifacts
+wandb/
+runs/
+outputs/
+checkpoints/
+models/
+artifacts/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.onnx
+
+# Generated data caches/outputs
+data/cache/
+data/logs/
+data/processed/
+data/generated/
+
+# Generated audio outputs
+*_harmonic_enhanced.wav
