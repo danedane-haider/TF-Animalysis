@@ -25,6 +25,8 @@ class Elelet:
         fs: Sample rate in Hz (default: 16000)
         supp_mult: Support multiplier (default: 0.2)
         scale: Frequency scale ('elelog' or other) (default: 'elelog')
+        pad_mode: Boundary mode for convolution. Use 'circular' for wraparound
+            or 'reflect' to mirror-pad like torch.stft(center=True).
     """
 
     def __init__(
@@ -38,6 +40,7 @@ class Elelet:
         supp_mult=0.2,
         scale='elelog',
         use_torch=False,
+        pad_mode="circular",
     ):
 
         [kernels, _, fc, _, _] = audfilters(
@@ -62,6 +65,7 @@ class Elelet:
         self.fmax = fmax
         self.fmin = fmin
         self.use_torch = use_torch
+        self.pad_mode = pad_mode
 
     def forward(self, audio):
         if self.fmin > 0:
@@ -77,9 +81,9 @@ class Elelet:
             # if audio is (batch_size, time), extend to (batch_size, 1, time)
             if len(audio.shape) == 2 and audio.shape[1] != 1:
                 audio = audio.unsqueeze(1)
-            coeffs = circ_conv(audio, kernels_to_use, d=self.stride)
+            coeffs = circ_conv(audio, kernels_to_use, d=self.stride, pad_mode=self.pad_mode)
         else:
-            coeffs = circ_conv_numpy(audio, kernels_to_use, d=self.stride)
+            coeffs = circ_conv_numpy(audio, kernels_to_use, d=self.stride, pad_mode=self.pad_mode)
         return coeffs
 
     def __call__(self, audio):

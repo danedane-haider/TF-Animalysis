@@ -49,6 +49,7 @@ elelet_transform = Elelet(
     supp_mult=1,
     scale='elelog',
     use_torch=True,
+    pad_mode="reflect",
 )
 elelet_output = torch.log(torch.abs(elelet_transform(audio_torch))**1)
 print(f"Elelet output shape: {elelet_output.shape}")

@@ -8,14 +8,26 @@ from .utils_auditory_scales import audspace_mod, freqtoaud_mod, freqtoaud
 #####################         ELELET Routines                      #################################
 ####################################################################################################
 
-def circ_conv_numpy(x: np.ndarray, kernels: np.ndarray, d: int = 1) -> np.ndarray:
-    L = x.shape[-1]
+def circ_conv_numpy(
+    x: np.ndarray,
+    kernels: np.ndarray,
+    d: int = 1,
+    pad_mode: str = "circular",
+) -> np.ndarray:
+    original_length = x.shape[-1]
     kernel_size = kernels.shape[-1]
 
-    # If audio is shorter than kernels, pad the audio first
+    crop_start = 0
+    if pad_mode != "circular":
+        pad = kernel_size // 2
+        if pad_mode == "reflect" and original_length <= pad:
+            raise ValueError("reflect padding requires audio to be longer than half the kernel size.")
+        x = np.pad(x, [(0, 0)] * (x.ndim - 1) + [(pad, pad)], mode=pad_mode)
+        crop_start = pad
+
+    L = x.shape[-1]
     if L < kernel_size:
-        pad_size = kernel_size - L
-        x = np.pad(x, (0, pad_size), mode='constant', constant_values=0)
+        x = np.pad(x, [(0, 0)] * (x.ndim - 1) + [(0, kernel_size - L)], mode="constant")
         L = x.shape[-1]
 
     # Zero-pad kernels to signal length
@@ -30,8 +42,11 @@ def circ_conv_numpy(x: np.ndarray, kernels: np.ndarray, d: int = 1) -> np.ndarra
     y_fft = x_fft * k_fft
     y = np.fft.ifft(y_fft, axis=-1)
 
+    if pad_mode != "circular":
+        y = y[..., crop_start : crop_start + original_length]
+
     # Downsample
-    return y[:, ::d]
+    return y[..., ::d]
 
 def upsample(x: torch.Tensor, d: int) -> torch.Tensor:
     N = x.shape[-1] * d
@@ -39,23 +54,30 @@ def upsample(x: torch.Tensor, d: int) -> torch.Tensor:
     x_up[:, :, ::d] = x
     return x_up
 
-def circ_conv(x: torch.Tensor, kernels: torch.Tensor, d: int = 1) -> torch.Tensor:
-    """Circular convolution with optional downsampling.
+def circ_conv(
+    x: torch.Tensor,
+    kernels: torch.Tensor,
+    d: int = 1,
+    pad_mode: str = "circular",
+) -> torch.Tensor:
+    """FFT convolution with optional downsampling.
 
-    Performs efficient circular convolution using FFT, followed by downsampling.
-    The kernels are automatically centered for proper phase alignment.
+    By default this uses circular boundary conditions. Set ``pad_mode="reflect"``
+    to mirror-pad the signal before convolution, similar to ``torch.stft`` with
+    ``center=True, pad_mode="reflect"``.
 
     Args:
         x (torch.Tensor): Input signal of shape (..., signal_length)
         kernels (torch.Tensor): Filter kernels of shape (num_channels, 1, kernel_length)
             or (num_channels, kernel_length)
         d (int): Downsampling factor (stride). Default: 1
+        pad_mode (str): ``"circular"`` for the old wraparound behavior, or a
+            ``torch.nn.functional.pad`` mode such as ``"reflect"``.
 
     Returns:
         torch.Tensor: Convolved and downsampled output of shape (..., num_channels, output_length)
 
     Note:
-        Uses circular convolution which assumes periodic boundary conditions.
         Kernels are automatically zero-padded and centered.
 
     Example:
@@ -63,17 +85,38 @@ def circ_conv(x: torch.Tensor, kernels: torch.Tensor, d: int = 1) -> torch.Tenso
         >>> kernels = torch.randn(40, 128)
         >>> y = circ_conv(x, kernels, d=4)
     """
+    if x.dim() == 2:
+        x = x.unsqueeze(1)
+
+    original_length = x.shape[-1]
+    kernel_size = kernels.shape[-1]
+    crop_start = 0
+
+    if pad_mode != "circular":
+        pad = kernel_size // 2
+        if pad_mode == "reflect" and original_length <= pad:
+            raise ValueError("reflect padding requires audio to be longer than half the kernel size.")
+        x = F.pad(x, (pad, pad), mode=pad_mode)
+        crop_start = pad
+
     L = x.shape[-1]
+    if L < kernel_size:
+        x = F.pad(x, (0, kernel_size - L), mode="constant", value=0)
+        L = x.shape[-1]
+
     x = x.to(kernels.dtype)
     kernels = kernels.to(x.device)
 
-    kernels_long = F.pad(kernels, (0, L - kernels.shape[-1]), mode="constant", value=0)
-    kernels_centered = torch.roll(kernels_long, shifts=-kernels.shape[-1] // 2, dims=-1)
+    kernels_long = F.pad(kernels, (0, L - kernel_size), mode="constant", value=0)
+    kernels_centered = torch.roll(kernels_long, shifts=-kernel_size // 2, dims=-1)
 
     x_fft = torch.fft.fft(x, n=L, dim=-1)
     k_fft = torch.fft.fft(kernels_centered, n=L, dim=-1)
     y_fft = x_fft * k_fft
     y = torch.fft.ifft(y_fft)
+
+    if pad_mode != "circular":
+        y = y[..., crop_start : crop_start + original_length]
 
     return y[:, :, ::d]
 
