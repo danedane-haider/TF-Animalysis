@@ -430,7 +430,7 @@ def main() -> None:
     parser.add_argument(
         "--output_dir_name",
         type=str,
-        default="f0_refined_elelet",
+        default="f0_refined",
         help="Output subdirectory under input dir.",
     )
     parser.add_argument("--sr", type=int, default=16000, help="Audio sample rate.")

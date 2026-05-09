@@ -17,14 +17,22 @@ import sys
 
 # Import Elelet transform and utilities
 sys.path.append(str(Path(__file__).parent.parent))
-from tf_transforms.transforms import Elelet
-from tf_transforms.utils_auditory_scales import freqtoaud, audtofreq
-import torch
+from f0_extraction.pipeline import (
+    corrected_dir_name as default_corrected_dir_name,
+    extracted_dir_name,
+    normalize_algorithm,
+    representation_dir_name,
+    resolve_existing_dir,
+)
 
 
 class F0Corrector:
     def __init__(self, audio_dir, sr=16000, frame_resolution=0.016,
-                 n_fft=8192, hop_length=256, fmin=0, fmax=100, start_idx=0, use_precomputed=True, bad_only=False):
+                 n_fft=8192, hop_length=256, fmin=0, fmax=100, start_idx=0,
+                 use_precomputed=True, bad_only=False, algorithm_name=None,
+                 f0_dir_name=None, corrected_dir_name=None,
+                 stft_dir_name=None, elelet_dir_name=None, initial_spec_mode=None,
+                 representation_fmax=750, enable_elelet_view=True):
         self.audio_dir = Path(audio_dir)
         self.sr = sr
         self.frame_resolution = frame_resolution
@@ -34,48 +42,49 @@ class F0Corrector:
         self.hop_length = hop_length
         self.use_precomputed = use_precomputed
         self.bad_only = bad_only
+        self.algorithm_name = normalize_algorithm(algorithm_name) if algorithm_name else None
+
+        # Spectrogram mode: 'stft' or 'elelet'
+        self.spec_mode = (initial_spec_mode or "stft").lower().strip()
+        if self.spec_mode not in ("stft", "elelet"):
+            raise ValueError("initial_spec_mode must be 'stft' or 'elelet'")
+        self.enable_elelet_view = enable_elelet_view or self.spec_mode == "elelet"
 
         # Pre-computed representation directories
-        self.stft_dir = self.audio_dir / "stft_750"
-        self.elelet_dir = self.audio_dir / "elelet_750"
+        self.stft_dir = self.audio_dir / (stft_dir_name or representation_dir_name("stft", representation_fmax))
+        self.elelet_dir = self.audio_dir / (elelet_dir_name or representation_dir_name("elelet", representation_fmax))
 
         # Check if pre-computed directories exist
         if self.use_precomputed:
-            if not self.stft_dir.exists() or not self.elelet_dir.exists():
+            active_dir = self.stft_dir if self.spec_mode == "stft" else self.elelet_dir
+            if not active_dir.exists():
                 print(f"Warning: Pre-computed directories not found!")
                 print(f"  STFT: {self.stft_dir.exists()} - {self.stft_dir}")
                 print(f"  Elelet: {self.elelet_dir.exists()} - {self.elelet_dir}")
                 print(f"  Falling back to on-the-fly computation")
-                print(f"  Run 'python precompute_representations.py --input {self.audio_dir}' to pre-compute")
+                print(f"  Run the matching precompute_representations_* script first to pre-compute")
                 self.use_precomputed = False
 
-        # Spectrogram mode: 'stft' or 'elelet'
-        self.spec_mode = 'stft'
-
-        # Initialize Elelet transform
-        self.elelet_transform = Elelet(
-            kernel_size=16000+8000,
-            num_channels=1024,
-            stride=256,
-            fmin=5,
-            fmax=500,
-            fs=16000,
-            supp_mult=0.2,
-            scale='elelog',
-        )
-
-        # Convert fc to numpy once for easier use
-        if isinstance(self.elelet_transform.fc, torch.Tensor):
-            self.elelet_transform.fc = self.elelet_transform.fc.numpy()
+        self.elelet_transform = None
+        if self.enable_elelet_view:
+            self._init_elelet_transform()
 
         # Find f0 directory
-        self.f0_dir = self.audio_dir / f"f0_{frame_resolution:.3f}"
+        self.f0_dir = resolve_existing_dir(
+            self.audio_dir,
+            f0_dir_name,
+            extracted_dir_name(self.algorithm_name or "elelet"),
+            legacy_name=f"f0_{frame_resolution:.3f}",
+        )
         if not self.f0_dir.exists():
             raise ValueError(f"F0 directory not found: {self.f0_dir}")
 
         # Track corrected files (needed for bad_only filtering)
-        self.corrected_dir = self.audio_dir / "f0_corrected"
+        self.corrected_dir = self.audio_dir / (
+            corrected_dir_name or default_corrected_dir_name()
+        )
         self.corrected_dir.mkdir(exist_ok=True)
+        self.contour_dirs = self._find_contour_dirs()
 
         # Find all audio files
         self.audio_files = sorted(list(self.audio_dir.glob("*.wav")))
@@ -133,6 +142,59 @@ class F0Corrector:
         # Load file at start index
         self.load_file(start_idx)
 
+    def _find_contour_dirs(self):
+        """Find all f0-like directories that contain contour CSVs."""
+        contour_dirs = []
+        for path in sorted(self.audio_dir.iterdir()):
+            if not path.is_dir() or not path.name.startswith("f0"):
+                continue
+            if any(path.glob("*.f0.csv")):
+                contour_dirs.append(path)
+        return contour_dirs
+
+    def _load_contour_versions(self, audio_stem):
+        """Load every available contour version for the current audio file."""
+        versions = {}
+        for contour_dir in self.contour_dirs:
+            if contour_dir.resolve() in {self.f0_dir.resolve(), self.corrected_dir.resolve()}:
+                continue
+            csv_path = contour_dir / f"{audio_stem}.f0.csv"
+            if not csv_path.exists():
+                continue
+            try:
+                df = pd.read_csv(csv_path)
+            except Exception as exc:
+                print(f"Warning: could not load {csv_path}: {exc}")
+                continue
+            if {"time", "frequency"}.issubset(df.columns):
+                versions[contour_dir.name] = (
+                    df["time"].to_numpy(dtype=float),
+                    df["frequency"].to_numpy(dtype=float),
+                )
+        return versions
+
+    def _init_elelet_transform(self):
+        """Initialize the Elelet transform only for workflows that need it."""
+        if self.elelet_transform is not None:
+            return
+
+        import torch
+        from tf_transforms.transforms import Elelet
+
+        self.elelet_transform = Elelet(
+            kernel_size=16000+8000,
+            num_channels=1024,
+            stride=256,
+            fmin=5,
+            fmax=500,
+            fs=16000,
+            supp_mult=0.2,
+            scale='elelog',
+        )
+
+        if isinstance(self.elelet_transform.fc, torch.Tensor):
+            self.elelet_transform.fc = self.elelet_transform.fc.numpy()
+
     def setup_buttons(self):
         """Setup navigation and action buttons"""
         # Previous button
@@ -152,7 +214,8 @@ class F0Corrector:
 
         # Toggle spectrogram button
         ax_toggle = plt.axes([0.29, 0.01, 0.13, 0.04])
-        self.btn_toggle = Button(ax_toggle, 'Switch Repr. (R)')
+        toggle_label = 'Switch Repr. (R)' if self.enable_elelet_view else 'STFT View'
+        self.btn_toggle = Button(ax_toggle, toggle_label)
         self.btn_toggle.on_clicked(lambda e: self.toggle_spectrogram())
 
         # Mark Start button
@@ -196,6 +259,10 @@ class F0Corrector:
     def toggle_spectrogram(self):
         """Toggle between STFT and Elelet spectrogram representations"""
         if self.spec_mode == 'stft':
+            if not self.enable_elelet_view:
+                print("→ Elelet view is disabled for this STFT workflow")
+                return
+            self._init_elelet_transform()
             self.spec_mode = 'elelet'
             print("→ Switched to ELELET spectrogram")
         else:
@@ -328,6 +395,9 @@ class F0Corrector:
             self.bad = 0
             self.awesome = 0
 
+        self.contour_dirs = self._find_contour_dirs()
+        self.other_contours = self._load_contour_versions(audio_path.stem)
+
         # Mark spectrograms as not cached (will compute on-demand)
         self.stft_cached = False
         self.elelet_cached = False
@@ -369,6 +439,7 @@ class F0Corrector:
     def compute_elelet(self):
         """Compute or load Elelet spectrogram if not cached"""
         if not self.elelet_cached:
+            self._init_elelet_transform()
             # Try loading pre-computed data first
             if self.use_precomputed:
                 audio_path = self.audio_files[self.current_idx]
@@ -400,6 +471,47 @@ class F0Corrector:
             num_channels = self.elelet_coeffs.shape[0]
             self.elelet_times = np.arange(num_frames) * self.elelet_transform.stride / self.sr
             self.elelet_cached = True
+
+    def _contour_style(self, idx, name):
+        color = plt.cm.tab10(idx % 10)
+        linestyle = ":" if "refined" in name else "-"
+        linewidth = 1.8 if "refined" in name else 1.1
+        alpha = 0.9 if "refined" in name else 0.6
+        return color, linestyle, linewidth, alpha
+
+    def _plot_other_contours_stft(self):
+        for idx, (name, (times, freqs)) in enumerate(self.other_contours.items()):
+            valid = freqs > 0
+            if not np.any(valid):
+                continue
+            color, linestyle, linewidth, alpha = self._contour_style(idx, name)
+            self.ax.plot(
+                times[valid],
+                freqs[valid],
+                color=color,
+                linestyle=linestyle,
+                linewidth=linewidth,
+                alpha=alpha,
+                label=name,
+            )
+
+    def _plot_other_contours_elelet(self, freq_to_channel_idx):
+        for idx, (name, (times, freqs)) in enumerate(self.other_contours.items()):
+            valid = freqs > 0
+            if not np.any(valid):
+                continue
+            color, linestyle, linewidth, alpha = self._contour_style(idx, name)
+            time_idx = times * self.sr / self.elelet_transform.stride
+            freq_idx = np.array([freq_to_channel_idx(f) for f in freqs])
+            self.ax.plot(
+                time_idx[valid],
+                freq_idx[valid],
+                color=color,
+                linestyle=linestyle,
+                linewidth=linewidth,
+                alpha=alpha,
+                label=name,
+            )
 
     def update_plot(self):
         """Update the plot with current data"""
@@ -482,6 +594,8 @@ class F0Corrector:
             f0_freq_idx = np.array([freq_to_channel_idx(f) for f in self.original_f0])
             f0_freq_corr_idx = np.array([freq_to_channel_idx(f) for f in self.corrected_f0])
 
+            self._plot_other_contours_elelet(freq_to_channel_idx)
+
             # Plot original f0 (gray dashed)
             valid_orig = self.original_f0 > 0
             self.ax.plot(f0_time_idx[valid_orig], f0_freq_idx[valid_orig],
@@ -513,6 +627,8 @@ class F0Corrector:
                                linewidth=2, label='End', alpha=0.8)
         else:
             # STFT mode - use real coordinates
+            self._plot_other_contours_stft()
+
             # Plot original f0 (gray dashed)
             valid_orig = self.original_f0 > 0
             self.ax.plot(self.f0_time[valid_orig], self.original_f0[valid_orig],
@@ -879,17 +995,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Correct f0 for all files in directory
-  python correct_f0_elelet.py --input data/rumbles
+  # Correct contours from one extracted algorithm directory
+  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir_name f0_elelet
 
   # With custom frequency range
-  python correct_f0_elelet.py --input data/rumbles --fmin 0 --fmax 80
+  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir_name f0_stft --fmin 0 --fmax 80
 
   # Start at sample number 5 (6th file, 0-indexed)
-  python correct_f0_elelet.py --input data/rumbles --start 5
+  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir_name f0_elelet --start 5
 
 Usage:
-  1. Press 'T' to toggle between STFT and Elelet spectrograms
+  1. Press 'R' to toggle between STFT and Elelet spectrograms
   2. Press 'W', click on spectrogram to mark START time (green line)
   3. Press 'E', click on spectrogram to mark END time (blue line)
      → f0 = 0 before start and after end
@@ -909,7 +1025,23 @@ Note: Files are automatically saved when you navigate to the next file or quit.
     )
 
     parser.add_argument('--input', type=str, required=True,
-                        help='Directory with audio files and f0_X.XXX/ subdirectory')
+                        help='Directory with audio files and an extracted f0_* subdirectory')
+    parser.add_argument('--algorithm_name', type=str, default=None,
+                        help='Algorithm name used to infer f0_<algorithm> when --f0_dir_name is omitted')
+    parser.add_argument('--f0_dir_name', type=str, default=None,
+                        help='Explicit input contour directory under --input')
+    parser.add_argument('--corrected_dir_name', type=str, default=None,
+                        help='Explicit corrected contour output directory under --input')
+    parser.add_argument('--stft_dir_name', type=str, default=None,
+                        help='Explicit precomputed STFT directory under --input')
+    parser.add_argument('--elelet_dir_name', type=str, default=None,
+                        help='Explicit precomputed Elelet directory under --input')
+    parser.add_argument('--initial_spec_mode', choices=('elelet', 'stft'), default='stft',
+                        help='Initial spectrogram view')
+    parser.add_argument('--representation_fmax', type=float, default=750,
+                        help='Frequency label used for default precomputed representation directories')
+    parser.add_argument('--enable_elelet_view', action=argparse.BooleanOptionalAction, default=True,
+                        help='Allow switching to the Elelet spectrogram view')
     parser.add_argument('--sr', type=int, default=16000,
                         help='Sampling rate (default: 16000)')
     parser.add_argument('--frame_resolution', type=float, default=0.016,
@@ -943,7 +1075,15 @@ Note: Files are automatically saved when you navigate to the next file or quit.
         fmax=args.fmax,
         start_idx=args.start,
         use_precomputed=args.precomputed,
-        bad_only=args.bad_only
+        bad_only=args.bad_only,
+        algorithm_name=args.algorithm_name,
+        f0_dir_name=args.f0_dir_name,
+        corrected_dir_name=args.corrected_dir_name,
+        stft_dir_name=args.stft_dir_name,
+        elelet_dir_name=args.elelet_dir_name,
+        initial_spec_mode=args.initial_spec_mode,
+        representation_fmax=args.representation_fmax,
+        enable_elelet_view=args.enable_elelet_view,
     )
 
     corrector.run()
