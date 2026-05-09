@@ -23,6 +23,11 @@ import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from tf_transforms.transforms import Elelet
 from tf_transforms.utils_auditory_scales import freqtoaud, audtofreq
@@ -419,7 +424,7 @@ def main() -> None:
     parser.add_argument(
         "--f0_input_dir_name",
         type=str,
-        default="f0_interpolated",
+        default="f0_corrected",
         help="Input F0 subdirectory under input dir.",
     )
     parser.add_argument(

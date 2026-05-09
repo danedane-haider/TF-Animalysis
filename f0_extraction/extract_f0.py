@@ -13,7 +13,11 @@ from scipy.signal import butter, filtfilt
 from tqdm import tqdm
 import argparse
 import sys
-sys.path.append(str(Path(__file__).parent))
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from tf_transforms.transforms import Elelet
 
 
@@ -39,8 +43,7 @@ def median_filter_pitch(frequency, confidence, kernel_size=9, conf_threshold=0.2
     return freq_filtered
 
 
-def extract_f0_pyin(audio, sr=16000, frame_resolution=0.016, fmin=5, fmax=50,
-                    use_pitch_shift=False, pitch_shift_octaves=2, extract_f1=False):
+def extract_f0_pyin(audio, sr=16000, frame_resolution=0.016, fmin=5, fmax=50, extract_f1=False):
     """
     Extract f0 using librosa's pYIN algorithm
 
@@ -50,8 +53,6 @@ def extract_f0_pyin(audio, sr=16000, frame_resolution=0.016, fmin=5, fmax=50,
         frame_resolution: seconds per frame
         fmin: minimum frequency (Hz)
         fmax: maximum frequency (Hz)
-        use_pitch_shift: if True, pitch shift up before extraction for better accuracy
-        pitch_shift_octaves: number of octaves to shift up (default: 2)
         extract_f1: if True, extract F1 (first overtone = 2×F0) then divide by 2
                     This is more robust when F1 is stronger than F0
 
@@ -348,8 +349,6 @@ def extract_f0_from_dataset(
     frame_resolution=0.016,
     fmin=10,
     fmax=40,
-    use_pitch_shift=False,
-    pitch_shift_octaves=2,
     extract_f1=False,
     use_elelet=False,
     elelet_fmin=10,
@@ -368,8 +367,6 @@ def extract_f0_from_dataset(
         frame_resolution: seconds per frame (for pYIN methods)
         fmin: minimum f0 (for pYIN methods)
         fmax: maximum f0 (for pYIN methods)
-        use_pitch_shift: if True, use pitch shifting for better f0 extraction
-        pitch_shift_octaves: number of octaves to shift up (default: 2)
         extract_f1: if True, extract F1 (2×F0) then divide by 2 using pYIN
         use_elelet: if True, use Elelet-based peak detection instead of pYIN
         elelet_fmin: minimum frequency to search (default: 15 Hz)
@@ -458,8 +455,6 @@ def extract_f0_from_dataset(
                 time, f0, confidence = extract_f0_pyin(
                     y, sr=sr, frame_resolution=frame_resolution,
                     fmin=fmin, fmax=fmax,
-                    use_pitch_shift=use_pitch_shift,
-                    pitch_shift_octaves=pitch_shift_octaves,
                     extract_f1=extract_f1
                 )
 
@@ -580,8 +575,6 @@ Examples:
         frame_resolution=args.frame_resolution,
         fmin=args.fmin,
         fmax=args.fmax,
-        use_pitch_shift=args.use_pitch_shift,
-        pitch_shift_octaves=args.pitch_shift_octaves,
         extract_f1=args.extract_f1,
         use_elelet=args.use_elelet,
         elelet_fmin=args.elelet_fmin,
