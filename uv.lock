@@ -1061,6 +1061,23 @@ wheels = [
 ]
 
 [[package]]
+name = "pesto-pitch"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "omegaconf" },
+    { name = "scipy" },
+    { name = "torch" },
+    { name = "torchaudio" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/65/bc/b79b34944bff2e9868c7f162b61f186cc006e51bd1452013d971aee74e31/pesto_pitch-2.0.1.tar.gz", hash = "sha256:9ea0690be863e929af73de3653f09567c9d6583951fd75281bf16a6fa85f427e", size = 631175, upload-time = "2025-02-18T16:24:22.304Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/55/85/46cc8ad5bf44a8f8626336ad3ffcd171c60002189b8b6dd0fdb80a7d444d/pesto_pitch-2.0.1-py3-none-any.whl", hash = "sha256:2eb1e5ac1c2f78f7563f4800cccd73daf04d52717ff0d95ea30257a56f3f9d37", size = 627938, upload-time = "2025-02-18T16:24:18.845Z" },
+]
+
+[[package]]
 name = "pillow"
 version = "12.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1550,6 +1567,7 @@ dependencies = [
     { name = "numpy" },
     { name = "omegaconf" },
     { name = "pandas" },
+    { name = "pesto-pitch" },
     { name = "scipy" },
     { name = "sounddevice" },
     { name = "soundfile" },
@@ -1569,6 +1587,7 @@ requires-dist = [
     { name = "numpy" },
     { name = "omegaconf" },
     { name = "pandas" },
+    { name = "pesto-pitch", specifier = ">=2.0.1" },
     { name = "scipy" },
     { name = "sounddevice", specifier = ">=0.5.3" },
     { name = "soundfile" },

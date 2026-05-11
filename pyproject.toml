@@ -20,4 +20,5 @@ dependencies = [
     "wandb>=0.23.0",
     "torchcodec",
     "sounddevice>=0.5.3",
+    "pesto-pitch>=2.0.1",
 ]

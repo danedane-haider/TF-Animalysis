@@ -30,13 +30,20 @@ python f0_extraction/precompute_representations.py --input data/rumbles
 ```
 
 Annotation is also shared. Pick which extracted contour is editable with
-`--f0_dir_name`; every other available `f0*` directory for the current file is
+`--f0_dir`; every other available `f0*` directory for the current file is
 plotted as a comparison overlay, including refined outputs.
 
 ```bash
-python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir_name f0_elelet
-python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir_name f0_stft
+python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir f0_elelet
+python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir f0_stft
 ```
+
+Inside the annotator, press `F` to toggle all F0 contour overlays, use the
+right-side contour checkboxes or number keys (`1`, `2`, `3`, ...) to toggle
+individual contour versions, and press `H` to toggle harmonic overlays. Harmonic
+overlays are computed for every enabled contour from `F0 = H1 / 2`, because
+contour CSV frequencies store H1 in this workflow. The annotator plots both the
+CSV H1 contour and its derived F0 line.
 
 Manual corrections always converge into:
 

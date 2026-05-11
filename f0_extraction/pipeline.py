@@ -15,19 +15,19 @@ def normalize_algorithm(algorithm: str | None = None) -> str:
     return value
 
 
-def extracted_dir_name(algorithm: str) -> str:
+def extracted_dir(algorithm: str) -> str:
     return f"f0_{normalize_algorithm(algorithm)}"
 
 
-def corrected_dir_name() -> str:
+def corrected_dir() -> str:
     return "f0_corrected"
 
 
-def refined_dir_name() -> str:
+def refined_dir() -> str:
     return "f0_refined"
 
 
-def representation_dir_name(pipeline: str, fmax: float = 750.0) -> str:
+def representation_dir(pipeline: str, fmax: float = 750.0) -> str:
     fmax_label = int(fmax) if float(fmax).is_integer() else str(fmax).replace(".", "p")
     return f"{pipeline.lower().strip()}_{fmax_label}"
 
@@ -55,4 +55,12 @@ def resolve_existing_dir(
 
 
 # Backwards-compatible alias for code that still talks about the initial contour directory.
-initial_dir_name = extracted_dir_name
+initial_dir = extracted_dir
+
+# Backwards-compatible aliases for scripts or notebooks that still import the
+# older helper names.
+extracted_dir_name = extracted_dir
+corrected_dir_name = corrected_dir
+refined_dir_name = refined_dir
+representation_dir_name = representation_dir
+initial_dir_name = initial_dir

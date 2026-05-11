@@ -361,8 +361,8 @@ def main() -> None:
     parser.add_argument(
         "--f0_input_dir_name",
         type=str,
-        default="f0_interpolated",
-        help="Base F0 input directory under input dir (default: f0_interpolated).",
+        default="f0_corrected",
+        help="Base F0 input directory under input dir (default: f0_corrected).",
     )
     parser.add_argument(
         "--output_dir_name",

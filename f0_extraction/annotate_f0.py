@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from matplotlib.widgets import Button
+from matplotlib.widgets import Button, CheckButtons
 from scipy.interpolate import interp1d
 import soundfile as sf
 import sounddevice as sd
@@ -18,10 +18,10 @@ import sys
 # Import Elelet transform and utilities
 sys.path.append(str(Path(__file__).parent.parent))
 from f0_extraction.pipeline import (
-    corrected_dir_name as default_corrected_dir_name,
-    extracted_dir_name,
+    corrected_dir as default_corrected_dir,
+    extracted_dir,
     normalize_algorithm,
-    representation_dir_name,
+    representation_dir,
     resolve_existing_dir,
 )
 
@@ -29,10 +29,10 @@ from f0_extraction.pipeline import (
 class F0Corrector:
     def __init__(self, audio_dir, sr=16000, frame_resolution=0.016,
                  n_fft=8192, hop_length=256, fmin=0, fmax=100, start_idx=0,
-                 use_precomputed=True, bad_only=False, algorithm_name=None,
-                 f0_dir_name=None, corrected_dir_name=None,
-                 stft_dir_name=None, elelet_dir_name=None, initial_spec_mode=None,
-                 representation_fmax=750, enable_elelet_view=True):
+                 use_precomputed=True, algorithm_name=None,
+                 f0_dir=None, corrected_dir=None,
+                 stft_dir=None, elelet_dir=None, initial_spec_mode=None,
+                 representation_fmax=750, enable_elelet_view=True, max_harmonic=10):
         self.audio_dir = Path(audio_dir)
         self.sr = sr
         self.frame_resolution = frame_resolution
@@ -41,8 +41,8 @@ class F0Corrector:
         self.fmax = fmax
         self.hop_length = hop_length
         self.use_precomputed = use_precomputed
-        self.bad_only = bad_only
         self.algorithm_name = normalize_algorithm(algorithm_name) if algorithm_name else None
+        self.max_harmonic = max(2, int(max_harmonic))
 
         # Spectrogram mode: 'stft' or 'elelet'
         self.spec_mode = (initial_spec_mode or "stft").lower().strip()
@@ -51,8 +51,8 @@ class F0Corrector:
         self.enable_elelet_view = enable_elelet_view or self.spec_mode == "elelet"
 
         # Pre-computed representation directories
-        self.stft_dir = self.audio_dir / (stft_dir_name or representation_dir_name("stft", representation_fmax))
-        self.elelet_dir = self.audio_dir / (elelet_dir_name or representation_dir_name("elelet", representation_fmax))
+        self.stft_dir = self.audio_dir / (stft_dir or representation_dir("stft", representation_fmax))
+        self.elelet_dir = self.audio_dir / (elelet_dir or representation_dir("elelet", representation_fmax))
 
         # Check if pre-computed directories exist
         if self.use_precomputed:
@@ -72,16 +72,16 @@ class F0Corrector:
         # Find f0 directory
         self.f0_dir = resolve_existing_dir(
             self.audio_dir,
-            f0_dir_name,
-            extracted_dir_name(self.algorithm_name or "elelet"),
+            f0_dir,
+            extracted_dir(self.algorithm_name or "elelet"),
             legacy_name=f"f0_{frame_resolution:.3f}",
         )
         if not self.f0_dir.exists():
             raise ValueError(f"F0 directory not found: {self.f0_dir}")
 
-        # Track corrected files (needed for bad_only filtering)
+        # Corrected contours always converge into one human-reviewed folder.
         self.corrected_dir = self.audio_dir / (
-            corrected_dir_name or default_corrected_dir_name()
+            corrected_dir or default_corrected_dir()
         )
         self.corrected_dir.mkdir(exist_ok=True)
         self.contour_dirs = self._find_contour_dirs()
@@ -90,25 +90,6 @@ class F0Corrector:
         self.audio_files = sorted(list(self.audio_dir.glob("*.wav")))
         if len(self.audio_files) == 0:
             raise ValueError(f"No audio files found in {self.audio_dir}")
-
-        # Filter to only bad/overlapping files if requested
-        if self.bad_only:
-            print(f"Filtering to only files tagged as bad or overlapping...")
-            filtered_files = []
-            for audio_file in self.audio_files:
-                corrected_path = self.corrected_dir / f"{audio_file.stem}.f0.csv"
-                if corrected_path.exists():
-                    df = pd.read_csv(corrected_path)
-                    is_bad = df['bad'].iloc[0] == 1 if 'bad' in df.columns else False
-                    is_overlapping = df['overlapping'].iloc[0] == 1 if 'overlapping' in df.columns else False
-                    if is_bad or is_overlapping:
-                        filtered_files.append(audio_file)
-
-            if len(filtered_files) == 0:
-                raise ValueError(f"No files tagged as bad or overlapping found in {self.corrected_dir}")
-
-            self.audio_files = filtered_files
-            print(f"  → Found {len(self.audio_files)} files tagged as bad or overlapping")
 
         # Validate start index
         if start_idx < 0 or start_idx >= len(self.audio_files):
@@ -122,9 +103,17 @@ class F0Corrector:
         self.end_point = None  # (time, freq) for end of region
         self.original_f0 = None
         self.corrected_f0 = None
-        self.overlapping = 0  # Tag for overlapping calls (0 or 1)
-        self.bad = 0  # Tag for bad quality samples (0 or 1)
-        self.awesome = 0  # Tag for awesome quality samples (0 or 1)
+        self.show_f0_contours = True
+        self.show_upper_harmonics = False
+        self.contour_visibility = {
+            "original": True,
+            "corrected": True,
+        }
+        self.contour_order = []
+        self.contour_check_ax = None
+        self.contour_check = None
+        self.contour_check_keys = []
+        self.contour_check_labels = []
 
         # Cached spectrograms (computed on-demand for speed)
         self.stft_cached = False
@@ -132,7 +121,7 @@ class F0Corrector:
 
         # Setup figure (single plot for spectrogram only)
         self.fig, self.ax = plt.subplots(1, 1, figsize=(16, 8))
-        plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.12)  # Make room for buttons
+        plt.subplots_adjust(left=0.05, right=0.88, top=0.95, bottom=0.12)  # Make room for buttons and contour toggles
         self.fig.canvas.mpl_connect('button_press_event', self.on_click)
         self.fig.canvas.mpl_connect('key_press_event', self.on_key)
 
@@ -172,6 +161,83 @@ class F0Corrector:
                     df["frequency"].to_numpy(dtype=float),
                 )
         return versions
+
+    def _display_contour_name(self, key):
+        if key == "original":
+            return "original"
+        if key == "corrected":
+            return "corrected"
+        if key.startswith("f0_"):
+            return key[3:]
+        return key
+
+    def _sync_contour_visibility(self):
+        """Keep per-contour visibility controls in sync with available files."""
+        self.contour_order = ["original", "corrected", *self.other_contours.keys()]
+        for key in self.contour_order:
+            self.contour_visibility.setdefault(key, True)
+
+    def _contour_title_summary(self):
+        if not self.show_f0_contours:
+            return "OFF"
+        visible = [
+            self._display_contour_name(key)
+            for key in self.contour_order
+            if self.contour_visibility.get(key, True)
+        ]
+        if not visible:
+            return "NONE"
+        if len(visible) == len(self.contour_order):
+            return "ALL"
+        if len(visible) <= 3:
+            return ", ".join(visible)
+        return ", ".join(visible[:3]) + ", ..."
+
+    def _refresh_contour_checkboxes(self):
+        """Build the small GUI panel for toggling individual contour versions."""
+        if self.contour_check_ax is not None:
+            self.contour_check_ax.remove()
+
+        if not self.contour_order:
+            self.contour_check_ax = None
+            self.contour_check = None
+            self.contour_check_keys = []
+            self.contour_check_labels = []
+            return
+
+        height = min(0.038 * len(self.contour_order) + 0.045, 0.30)
+        bottom = 0.92 - height
+        self.contour_check_ax = plt.axes([0.895, bottom, 0.085, height])
+        self.contour_check_ax.set_title("Ctrs", fontsize=8)
+        self.contour_check_keys = list(self.contour_order)
+        self.contour_check_labels = [
+            f"{idx + 1}. {self._display_contour_name(key)}"
+            for idx, key in enumerate(self.contour_check_keys)
+        ]
+        active = [
+            self.contour_visibility.get(key, True)
+            for key in self.contour_check_keys
+        ]
+        self.contour_check = CheckButtons(
+            self.contour_check_ax,
+            self.contour_check_labels,
+            active,
+        )
+        for label in self.contour_check.labels:
+            label.set_fontsize(7)
+        self.contour_check.on_clicked(self._on_contour_check)
+
+    def _on_contour_check(self, label):
+        if label not in self.contour_check_labels:
+            return
+        idx = self.contour_check_labels.index(label)
+        key = self.contour_check_keys[idx]
+        self.contour_visibility[key] = self.contour_check.get_status()[idx]
+        if self.contour_visibility[key]:
+            self.show_f0_contours = True
+        status = "ON" if self.contour_visibility[key] else "OFF"
+        print(f"→ {self._display_contour_name(key)} contour: {status}")
+        self.update_plot()
 
     def _init_elelet_transform(self):
         """Initialize the Elelet transform only for workflows that need it."""
@@ -233,23 +299,17 @@ class F0Corrector:
         self.btn_clear = Button(ax_clear, 'Clear (C)')
         self.btn_clear.on_clicked(lambda e: self.clear_corrections())
 
-        # Overlapping button
-        ax_overlap = plt.axes([0.73, 0.01, 0.07, 0.04])
-        self.btn_overlap = Button(ax_overlap, 'Overlap (O)')
-        self.btn_overlap.on_clicked(lambda e: self.toggle_overlapping())
+        # Display controls
+        ax_contours = plt.axes([0.73, 0.01, 0.09, 0.04])
+        self.btn_contours = Button(ax_contours, 'All Ctrs (F)')
+        self.btn_contours.on_clicked(lambda e: self.toggle_f0_contours())
 
-        # Bad button
-        ax_bad = plt.axes([0.81, 0.01, 0.06, 0.04])
-        self.btn_bad = Button(ax_bad, 'Bad (B)')
-        self.btn_bad.on_clicked(lambda e: self.toggle_bad())
-
-        # Awesome button
-        ax_awesome = plt.axes([0.88, 0.01, 0.07, 0.04])
-        self.btn_awesome = Button(ax_awesome, 'Awesome (A)')
-        self.btn_awesome.on_clicked(lambda e: self.toggle_awesome())
+        ax_harmonics = plt.axes([0.83, 0.01, 0.11, 0.04])
+        self.btn_harmonics = Button(ax_harmonics, 'Harmonics (H)')
+        self.btn_harmonics.on_clicked(lambda e: self.toggle_upper_harmonics())
 
         # Quit button
-        ax_quit = plt.axes([0.96, 0.01, 0.04, 0.04])
+        ax_quit = plt.axes([0.95, 0.01, 0.04, 0.04])
         self.btn_quit = Button(ax_quit, 'Q')
         self.btn_quit.on_clicked(lambda e: self.quit_tool())
 
@@ -270,25 +330,34 @@ class F0Corrector:
             print("→ Switched to STFT spectrogram")
         self.update_plot()
 
-    def toggle_overlapping(self):
-        """Toggle overlapping tag"""
-        self.overlapping = 1 - self.overlapping
-        status = "YES" if self.overlapping == 1 else "NO"
-        print(f"→ Overlapping: {status}")
+    def toggle_f0_contours(self):
+        """Toggle all F0 contour overlays."""
+        self.show_f0_contours = not self.show_f0_contours
+        status = "ON" if self.show_f0_contours else "OFF"
+        print(f"→ F0 contours: {status}")
         self.update_plot()
 
-    def toggle_bad(self):
-        """Toggle bad quality tag"""
-        self.bad = 1 - self.bad
-        status = "YES" if self.bad == 1 else "NO"
-        print(f"→ Bad: {status}")
+    def toggle_single_contour(self, slot):
+        """Toggle one contour by its displayed number."""
+        idx = int(slot) - 1
+        if idx < 0 or idx >= len(self.contour_order):
+            print(f"→ No contour assigned to {slot}")
+            return
+
+        key = self.contour_order[idx]
+        self.contour_visibility[key] = not self.contour_visibility.get(key, True)
+        if self.contour_visibility[key]:
+            self.show_f0_contours = True
+        status = "ON" if self.contour_visibility[key] else "OFF"
+        print(f"→ {self._display_contour_name(key)} contour: {status}")
+        self._refresh_contour_checkboxes()
         self.update_plot()
 
-    def toggle_awesome(self):
-        """Toggle awesome quality tag"""
-        self.awesome = 1 - self.awesome
-        status = "YES" if self.awesome == 1 else "NO"
-        print(f"→ Awesome: {status}")
+    def toggle_upper_harmonics(self):
+        """Toggle harmonic overlays derived from the contour's implied F0."""
+        self.show_upper_harmonics = not self.show_upper_harmonics
+        status = "ON" if self.show_upper_harmonics else "OFF"
+        print(f"→ Upper harmonics: {status}")
         self.update_plot()
 
     def play_audio(self):
@@ -368,35 +437,17 @@ class F0Corrector:
             else:
                 self.end_point = None
 
-            # Load overlapping tag if stored
-            if 'overlapping' in df_corrected.columns:
-                self.overlapping = int(df_corrected['overlapping'].iloc[0])
-            else:
-                self.overlapping = 0
-
-            # Load bad tag if stored
-            if 'bad' in df_corrected.columns:
-                self.bad = int(df_corrected['bad'].iloc[0])
-            else:
-                self.bad = 0
-
-            # Load awesome tag if stored
-            if 'awesome' in df_corrected.columns:
-                self.awesome = int(df_corrected['awesome'].iloc[0])
-            else:
-                self.awesome = 0
         else:
             self.original_f0 = self.f0_freq.copy()
             self.corrected_f0 = self.f0_freq.copy()
             self.correction_points = []
             self.start_point = None
             self.end_point = None
-            self.overlapping = 0
-            self.bad = 0
-            self.awesome = 0
 
         self.contour_dirs = self._find_contour_dirs()
         self.other_contours = self._load_contour_versions(audio_path.stem)
+        self._sync_contour_visibility()
+        self._refresh_contour_checkboxes()
 
         # Mark spectrograms as not cached (will compute on-demand)
         self.stft_cached = False
@@ -473,45 +524,159 @@ class F0Corrector:
             self.elelet_cached = True
 
     def _contour_style(self, idx, name):
-        color = plt.cm.tab10(idx % 10)
-        linestyle = ":" if "refined" in name else "-"
-        linewidth = 1.8 if "refined" in name else 1.1
-        alpha = 0.9 if "refined" in name else 0.6
+        is_refined = "refined" in name
+        color = "deeppink" if is_refined else plt.cm.tab10(idx % 10)
+        linestyle = "-" if is_refined else "-"
+        linewidth = 2.0 if is_refined else 1.1
+        alpha = 0.95 if is_refined else 0.6
         return color, linestyle, linewidth, alpha
 
-    def _plot_other_contours_stft(self):
+    def _contour_series(self, require_master_toggle=True):
+        if self.original_f0 is not None:
+            if self.contour_visibility.get("original", True):
+                if self.show_f0_contours or not require_master_toggle:
+                    yield (
+                        "original",
+                        "Original",
+                        self.f0_time,
+                        self.original_f0,
+                        "gray",
+                        "-",
+                        1.5,
+                        0.55,
+                    )
+
+        if self.corrected_f0 is not None:
+            if self.contour_visibility.get("corrected", True):
+                if self.show_f0_contours or not require_master_toggle:
+                    yield (
+                        "corrected",
+                        "Corrected",
+                        self.f0_time,
+                        self.corrected_f0,
+                        "c",
+                        "-",
+                        2.0,
+                        0.85,
+                    )
+
         for idx, (name, (times, freqs)) in enumerate(self.other_contours.items()):
-            valid = freqs > 0
-            if not np.any(valid):
+            if not self.contour_visibility.get(name, True):
+                continue
+            if not self.show_f0_contours and require_master_toggle:
                 continue
             color, linestyle, linewidth, alpha = self._contour_style(idx, name)
-            self.ax.plot(
-                times[valid],
-                freqs[valid],
-                color=color,
-                linestyle=linestyle,
-                linewidth=linewidth,
-                alpha=alpha,
-                label=name,
+            yield (
+                name,
+                self._display_contour_name(name),
+                times,
+                freqs,
+                color,
+                linestyle,
+                linewidth,
+                alpha,
             )
 
-    def _plot_other_contours_elelet(self, freq_to_channel_idx):
-        for idx, (name, (times, freqs)) in enumerate(self.other_contours.items()):
-            valid = freqs > 0
-            if not np.any(valid):
+    def _plot_h1_and_f0_stft(self):
+        """Plot each visible CSV H1 contour plus its derived F0 = H1 / 2."""
+        for _, label, times, h1_freqs, color, linestyle, linewidth, alpha in self._contour_series():
+            valid_h1 = h1_freqs > 0
+            if not np.any(valid_h1):
                 continue
-            color, linestyle, linewidth, alpha = self._contour_style(idx, name)
-            time_idx = times * self.sr / self.elelet_transform.stride
-            freq_idx = np.array([freq_to_channel_idx(f) for f in freqs])
+
             self.ax.plot(
-                time_idx[valid],
-                freq_idx[valid],
+                times[valid_h1],
+                h1_freqs[valid_h1],
                 color=color,
                 linestyle=linestyle,
                 linewidth=linewidth,
                 alpha=alpha,
-                label=name,
+                label=f"{label} H1",
             )
+
+            f0_freqs = h1_freqs / 2.0
+            valid_f0 = f0_freqs > 0
+            self.ax.plot(
+                times[valid_f0],
+                f0_freqs[valid_f0],
+                color=color,
+                linestyle="-",
+                linewidth=max(1.0, linewidth * 0.65),
+                alpha=min(0.85, alpha + 0.05),
+                label=f"{label} F0",
+            )
+
+    def _plot_h1_and_f0_elelet(self, freq_to_channel_idx):
+        """Plot each visible CSV H1 contour plus its derived F0 = H1 / 2."""
+        for _, label, times, h1_freqs, color, linestyle, linewidth, alpha in self._contour_series():
+            valid_h1 = h1_freqs > 0
+            if not np.any(valid_h1):
+                continue
+
+            time_idx = times * self.sr / self.elelet_transform.stride
+            h1_freq_idx = np.array([freq_to_channel_idx(f) for f in h1_freqs])
+            self.ax.plot(
+                time_idx[valid_h1],
+                h1_freq_idx[valid_h1],
+                color=color,
+                linestyle=linestyle,
+                linewidth=linewidth,
+                alpha=alpha,
+                label=f"{label} H1",
+            )
+
+            f0_freqs = h1_freqs / 2.0
+            valid_f0 = f0_freqs > 0
+            f0_freq_idx = np.array([freq_to_channel_idx(f) for f in f0_freqs])
+            self.ax.plot(
+                time_idx[valid_f0],
+                f0_freq_idx[valid_f0],
+                color=color,
+                linestyle="-",
+                linewidth=max(1.5, linewidth * 0.65),
+                alpha=min(0.85, alpha + 0.05),
+                label=f"{label} F0",
+            )
+
+    def _plot_upper_harmonics_stft(self):
+        """Plot harmonic guides for every enabled contour, omitting legend entries."""
+        for _, _, times, h1_freqs, color, _, _, alpha in self._contour_series(require_master_toggle=False):
+            fundamental_freqs = h1_freqs / 2.0
+            for harmonic in range(2, self.max_harmonic + 1):
+                freqs = fundamental_freqs * harmonic
+                valid = (fundamental_freqs > 0) & (freqs <= self.fmax)
+                if not np.any(valid):
+                    continue
+                self.ax.plot(
+                    times[valid],
+                    freqs[valid],
+                    color=color,
+                    linestyle="-",
+                    linewidth=1.5,
+                    alpha=min(0.6, alpha * 0.7),
+                    label="_nolegend_",
+                )
+
+    def _plot_upper_harmonics_elelet(self, freq_to_channel_idx):
+        """Plot harmonic guides for every enabled contour, omitting legend entries."""
+        for _, _, times, h1_freqs, color, _, _, alpha in self._contour_series(require_master_toggle=False):
+            fundamental_freqs = h1_freqs / 2.0
+            time_idx = times * self.sr / self.elelet_transform.stride
+            for harmonic in range(2, self.max_harmonic + 1):
+                freqs = fundamental_freqs * harmonic
+                valid = (fundamental_freqs > 0) & (freqs <= self.fmax)
+                if not np.any(valid):
+                    continue
+                freq_idx = np.array([freq_to_channel_idx(f) for f in freqs])
+                self.ax.plot(
+                    time_idx[valid],
+                    freq_idx[valid],
+                    color=color,
+                    linestyle="-",
+                    linewidth=1.5,
+                    alpha=min(0.6, alpha * 0.7),
+                    label="_nolegend_",
+                )
 
     def update_plot(self):
         """Update the plot with current data"""
@@ -527,7 +692,7 @@ class F0Corrector:
             freq_mask = (self.spec_freqs >= self.fmin) & (self.spec_freqs <= self.fmax)
             self.ax.pcolormesh(self.spec_times, self.spec_freqs[freq_mask],
                               self.S_db[freq_mask, :],
-                              shading='gouraud', cmap='magma', vmin=-80, vmax=0)
+                              shading='gouraud', cmap='Greys', vmin=-80, vmax=0)
         else:
             # Compute Elelet if needed
             self.compute_elelet()
@@ -559,7 +724,7 @@ class F0Corrector:
                 vmax = np.percentile(c, 95)
 
             # Plot using pcolor (like in transform.plot)
-            self.ax.pcolor(c, cmap='magma', vmin=vmin, vmax=vmax)
+            self.ax.pcolor(c, cmap='Greys', vmin=vmin, vmax=vmax)
 
             # Set y-axis ticks to show actual frequencies (like in transform.plot)
             locs = np.linspace(self.elelet_transform.fmin, c.shape[0] - 1, min(len(fc), 10)).astype(int)
@@ -576,9 +741,6 @@ class F0Corrector:
 
         # Plot f0 overlays (convert coordinates for Elelet mode)
         if self.spec_mode == 'elelet':
-            # Convert time from seconds to frame indices
-            f0_time_idx = self.f0_time * self.sr / self.elelet_transform.stride
-
             # Convert frequency from Hz to channel indices
             # Note: when fmin > 0, coefficients only contain frequencies >= fmin
             fc = self.elelet_transform.fc
@@ -591,20 +753,10 @@ class F0Corrector:
                 idx = np.argmin(np.abs(fc_filtered - freq_hz))
                 return idx
 
-            f0_freq_idx = np.array([freq_to_channel_idx(f) for f in self.original_f0])
-            f0_freq_corr_idx = np.array([freq_to_channel_idx(f) for f in self.corrected_f0])
+            if self.show_upper_harmonics:
+                self._plot_upper_harmonics_elelet(freq_to_channel_idx)
 
-            self._plot_other_contours_elelet(freq_to_channel_idx)
-
-            # Plot original f0 (gray dashed)
-            valid_orig = self.original_f0 > 0
-            self.ax.plot(f0_time_idx[valid_orig], f0_freq_idx[valid_orig],
-                    'gray', linestyle='--', linewidth=1.5, alpha=0.5, label='Original f0')
-
-            # Plot corrected f0 (cyan solid)
-            valid_corr = self.corrected_f0 > 0
-            self.ax.plot(f0_time_idx[valid_corr], f0_freq_corr_idx[valid_corr],
-                    'c-', linewidth=2, label='Corrected f0', alpha=0.8)
+            self._plot_h1_and_f0_elelet(freq_to_channel_idx)
 
             # Plot correction points (coral markers)
             if self.correction_points:
@@ -627,17 +779,10 @@ class F0Corrector:
                                linewidth=2, label='End', alpha=0.8)
         else:
             # STFT mode - use real coordinates
-            self._plot_other_contours_stft()
+            if self.show_upper_harmonics:
+                self._plot_upper_harmonics_stft()
 
-            # Plot original f0 (gray dashed)
-            valid_orig = self.original_f0 > 0
-            self.ax.plot(self.f0_time[valid_orig], self.original_f0[valid_orig],
-                    'gray', linestyle='--', linewidth=1.5, alpha=0.5, label='Original f0')
-
-            # Plot corrected f0 (cyan solid)
-            valid_corr = self.corrected_f0 > 0
-            self.ax.plot(self.f0_time[valid_corr], self.corrected_f0[valid_corr],
-                    'c-', linewidth=2, label='Corrected f0', alpha=0.8)
+            self._plot_h1_and_f0_stft()
 
             # Plot correction points (coral markers)
             if self.correction_points:
@@ -658,14 +803,15 @@ class F0Corrector:
         self.ax.set_xlabel('Time (s)', fontsize=12)
         self.ax.set_ylabel('Frequency (Hz)', fontsize=12)
 
-        # Add spectrogram mode and tags to title
+        # Add spectrogram mode and display state to title
         spec_mode_label = "STFT" if self.spec_mode == 'stft' else "ELELET"
-        overlap_label = "YES" if self.overlapping == 1 else "NO"
-        bad_label = "YES" if self.bad == 1 else "NO"
-        awesome_label = "YES" if self.awesome == 1 else "NO"
-        self.ax.set_title(f'[{self.current_idx+1}/{len(self.audio_files)}] {audio_path.name} | Mode: {spec_mode_label} | Overlap: {overlap_label} | Bad: {bad_label} | Awesome: {awesome_label}',
+        contours_label = self._contour_title_summary()
+        harmonics_label = "ON" if self.show_upper_harmonics else "OFF"
+        self.ax.set_title(f'[{self.current_idx+1}/{len(self.audio_files)}] {audio_path.name} | Mode: {spec_mode_label} | Contours: {contours_label} | Harmonics: {harmonics_label}',
                     fontsize=10, fontweight='bold')
-        self.ax.legend(loc='upper right', fontsize=9)
+        handles, labels = self.ax.get_legend_handles_labels()
+        if handles:
+            self.ax.legend(loc='upper right', fontsize=9)
         self.ax.grid(False)
 
         # Set y-axis limits based on mode
@@ -777,12 +923,12 @@ class F0Corrector:
             self.set_marking_mode('end')
         elif event.key == 'c':
             self.clear_corrections()
-        elif event.key == 'o':
-            self.toggle_overlapping()
-        elif event.key == 'b':
-            self.toggle_bad()
-        elif event.key == 'a':
-            self.toggle_awesome()
+        elif event.key == 'f':
+            self.toggle_f0_contours()
+        elif event.key == 'h':
+            self.toggle_upper_harmonics()
+        elif event.key in {'1', '2', '3', '4', '5', '6', '7', '8', '9'}:
+            self.toggle_single_contour(event.key)
         elif event.key == 'q':
             self.quit_tool()
 
@@ -897,20 +1043,12 @@ class F0Corrector:
             if len(nonzero_indices) > 0:
                 end_mask[nonzero_indices[-1]] = 1
 
-        # Create overlapping, bad, and awesome columns (same value for all rows)
-        overlapping_col = np.full(len(self.f0_time), self.overlapping, dtype=int)
-        bad_col = np.full(len(self.f0_time), self.bad, dtype=int)
-        awesome_col = np.full(len(self.f0_time), self.awesome, dtype=int)
-
-        # Save to CSV (time, frequency, start_point, end_point, overlapping, bad, awesome)
+        # Save only the corrected contour and boundary markers.
         df = pd.DataFrame({
             'time': self.f0_time,
             'frequency': self.corrected_f0,
             'start_point': start_mask,
             'end_point': end_mask,
-            'overlapping': overlapping_col,
-            'bad': bad_col,
-            'awesome': awesome_col
         })
         df.to_csv(output_path, index=False)
 
@@ -925,12 +1063,6 @@ class F0Corrector:
                 print(f"  End time: t={self.end_point[0]:.3f}s")
             elif len(np.where(self.corrected_f0 > 0)[0]) > 0:
                 print(f"  End time (auto): t={self.f0_time[np.where(self.corrected_f0 > 0)[0][-1]]:.3f}s")
-            overlap_status = "YES" if self.overlapping == 1 else "NO"
-            print(f"  Overlapping: {overlap_status}")
-            bad_status = "YES" if self.bad == 1 else "NO"
-            print(f"  Bad: {bad_status}")
-            awesome_status = "YES" if self.awesome == 1 else "NO"
-            print(f"  Awesome: {awesome_status}")
 
             # Update title to show saved status
             title = self.ax.get_title()
@@ -969,8 +1101,9 @@ class F0Corrector:
         print("  E + CLICK: Mark end time (blue line)")
         print("    → Start/End define time boundaries only (f0=0 outside)")
         print("    → Add correction points within region for interpolation")
-        print("  O: Toggle overlapping tag (YES/NO)")
-        print("  B: Toggle bad quality tag (YES/NO)")
+        print("  F: Toggle all F0 contour overlays")
+        print("  1/2/3...: Toggle individual contours shown in the right panel")
+        print("  H: Toggle harmonic overlays for enabled contours (base F0 = H1 / 2)")
         print("  Arrow keys / N/P: Next/Previous file (auto-saves)")
         print("  C: Clear all points")
         print("  Q: Quit (saves and exits)")
@@ -996,13 +1129,13 @@ def main():
         epilog="""
 Examples:
   # Correct contours from one extracted algorithm directory
-  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir_name f0_elelet
+  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir f0_elelet
 
   # With custom frequency range
-  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir_name f0_stft --fmin 0 --fmax 80
+  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir f0_stft --fmin 0 --fmax 80
 
   # Start at sample number 5 (6th file, 0-indexed)
-  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir_name f0_elelet --start 5
+  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir f0_elelet --start 5
 
 Usage:
   1. Press 'R' to toggle between STFT and Elelet spectrograms
@@ -1012,13 +1145,16 @@ Usage:
   4. Add correction points (left click) within the region for f0 values
   5. Tool uses cubic spline interpolation between correction points
   6. Right-click to remove nearby points
-  7. Use arrow keys to navigate between files (auto-saves)
-  8. Press 'Q' to quit (auto-saves and exits)
-  9. Corrected f0 saved to data/rumbles/f0_corrected/
+  7. Press 'F' to hide/show all F0 contour overlays
+  8. Press '1', '2', '3'... to toggle individual contours in the right panel
+  9. Press 'H' to hide/show harmonic overlays for enabled contours (base F0 = H1 / 2)
+  10. Use arrow keys to navigate between files (auto-saves)
+  11. Press 'Q' to quit (auto-saves and exits)
+  12. Corrected f0 saved to data/rumbles/f0_corrected/
 
 Spectrograms:
-  - STFT: Standard Short-Time Fourier Transform (magma colormap)
-  - Elelet: Elephant Wavelet Transform with custom filterbank (inferno colormap)
+  - STFT: Standard Short-Time Fourier Transform
+  - Elelet: Elephant Wavelet Transform with custom filterbank
 
 Note: Files are automatically saved when you navigate to the next file or quit.
         """
@@ -1027,14 +1163,14 @@ Note: Files are automatically saved when you navigate to the next file or quit.
     parser.add_argument('--input', type=str, required=True,
                         help='Directory with audio files and an extracted f0_* subdirectory')
     parser.add_argument('--algorithm_name', type=str, default=None,
-                        help='Algorithm name used to infer f0_<algorithm> when --f0_dir_name is omitted')
-    parser.add_argument('--f0_dir_name', type=str, default=None,
+                        help='Algorithm name used to infer f0_<algorithm> when --f0_dir is omitted')
+    parser.add_argument('--f0_dir', type=str, default=None,
                         help='Explicit input contour directory under --input')
-    parser.add_argument('--corrected_dir_name', type=str, default=None,
+    parser.add_argument('--corrected_dir', type=str, default=None,
                         help='Explicit corrected contour output directory under --input')
-    parser.add_argument('--stft_dir_name', type=str, default=None,
+    parser.add_argument('--stft_dir', type=str, default=None,
                         help='Explicit precomputed STFT directory under --input')
-    parser.add_argument('--elelet_dir_name', type=str, default=None,
+    parser.add_argument('--elelet_dir', type=str, default=None,
                         help='Explicit precomputed Elelet directory under --input')
     parser.add_argument('--initial_spec_mode', choices=('elelet', 'stft'), default='stft',
                         help='Initial spectrogram view')
@@ -1042,6 +1178,8 @@ Note: Files are automatically saved when you navigate to the next file or quit.
                         help='Frequency label used for default precomputed representation directories')
     parser.add_argument('--enable_elelet_view', action=argparse.BooleanOptionalAction, default=True,
                         help='Allow switching to the Elelet spectrogram view')
+    parser.add_argument('--max_harmonic', type=int, default=10,
+                        help='Highest harmonic to draw when harmonic overlays are enabled')
     parser.add_argument('--sr', type=int, default=16000,
                         help='Sampling rate (default: 16000)')
     parser.add_argument('--frame_resolution', type=float, default=0.016,
@@ -1060,8 +1198,6 @@ Note: Files are automatically saved when you navigate to the next file or quit.
                         help='Use pre-computed representations (default: True)')
     parser.add_argument('--no_precomputed', dest='precomputed', action='store_false',
                         help='Compute representations on-the-fly (slower)')
-    parser.add_argument('--bad_only', action='store_true',
-                        help='Only show files tagged as bad or overlapping')
 
     args = parser.parse_args()
 
@@ -1075,15 +1211,15 @@ Note: Files are automatically saved when you navigate to the next file or quit.
         fmax=args.fmax,
         start_idx=args.start,
         use_precomputed=args.precomputed,
-        bad_only=args.bad_only,
         algorithm_name=args.algorithm_name,
-        f0_dir_name=args.f0_dir_name,
-        corrected_dir_name=args.corrected_dir_name,
-        stft_dir_name=args.stft_dir_name,
-        elelet_dir_name=args.elelet_dir_name,
+        f0_dir=args.f0_dir,
+        corrected_dir=args.corrected_dir,
+        stft_dir=args.stft_dir,
+        elelet_dir=args.elelet_dir,
         initial_spec_mode=args.initial_spec_mode,
         representation_fmax=args.representation_fmax,
         enable_elelet_view=args.enable_elelet_view,
+        max_harmonic=args.max_harmonic,
     )
 
     corrector.run()

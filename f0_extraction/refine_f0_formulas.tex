@@ -1,0 +1,211 @@
+% LaTeX snippet for the refinement method implemented in f0_extraction/refine_f0.py.
+% Requires: \usepackage{amsmath,amssymb}
+
+\subsection{Elelet-Based Harmonic Refinement}
+
+The manually corrected contour is stored as the first harmonic, denoted
+\(H1_i\), at frame \(i\). Refinement is performed in fundamental-frequency
+space by converting the first harmonic to its implied \(F0\):
+\begin{equation}
+    f_i^{(0)} = \frac{H1_i}{2}.
+\end{equation}
+
+For each Elelet kernel size \(k \in \mathcal{K}\), the audio signal \(x\) is
+transformed into complex Elelet coefficients \(E^{(k)}(x)\). The power
+representation used for scoring is
+\begin{equation}
+    P^{(k)}_{c,m}
+    =
+    \left|E^{(k)}(x)_{c,m}\right|^{p},
+\end{equation}
+where \(c\) indexes frequency channels, \(m\) indexes time frames, and \(p\) is
+the magnitude exponent.
+
+Let \(A(\cdot)\) denote the auditory-scale frequency transform used by the
+Elelet representation, and let \(A^{-1}(\cdot)\) be its inverse. For each input
+frame \(i\), the current \(F0\) estimate is mapped to auditory-scale space:
+\begin{equation}
+    a_i = A\!\left(f_i^{(0)}\right).
+\end{equation}
+The nearest Elelet frequency bin is
+\begin{equation}
+    b_i =
+    \operatorname*{argmin}_{c}
+    \left|a_c - a_i\right|.
+\end{equation}
+
+The candidate set is a local neighborhood around this bin:
+\begin{equation}
+    \mathcal{C}_i =
+    \left\{
+        b_i + d
+        \;:\;
+        d \in \{-r_i,\ldots,r_i\}
+    \right\},
+\end{equation}
+where \(r_i\) is the local search radius in auditory bins. Near signal edges,
+the implementation reduces this radius to one bin.
+
+Each candidate bin \(c \in \mathcal{C}_i\) corresponds to a candidate
+fundamental frequency
+\begin{equation}
+    \hat{f}_{i,c} = A^{-1}(a_c).
+\end{equation}
+Candidates below the minimum allowed \(F0\) are discarded.
+
+For a candidate \(\hat{f}_{i,c}\), the maximum number of harmonics considered is
+bounded by Nyquist:
+\begin{equation}
+    H_c =
+    \min\left(
+        H_{\max},
+        \left\lfloor
+            \frac{f_s/2}{\hat{f}_{i,c}}
+        \right\rfloor
+    \right),
+\end{equation}
+where \(f_s\) is the sampling rate and \(H_{\max}\) is the configured maximum
+number of harmonics.
+
+For harmonic \(h\), the target frequency is
+\begin{equation}
+    f_{h,c} = h \hat{f}_{i,c},
+\end{equation}
+and its nearest auditory-scale bin in representation \(k\) is
+\begin{equation}
+    q_{h,c}^{(k)}
+    =
+    \operatorname*{argmin}_{q}
+    \left|
+        a_q^{(k)}
+        -
+        A\!\left(f_{h,c}\right)
+    \right|.
+\end{equation}
+
+The implementation averages power in a small bin neighborhood around each
+harmonic:
+\begin{equation}
+    \mathcal{B}_{h,c}^{(k)}
+    =
+    \left\{
+        q
+        \;:\;
+        q_{h,c}^{(k)} - \rho
+        \le q \le
+        q_{h,c}^{(k)} + \rho
+    \right\},
+\end{equation}
+where \(\rho\) is the harmonic bin radius.
+
+For frame \(i\), representation \(k\), and candidate \(c\), the local harmonic
+energy is normalized by the mean frame power:
+\begin{equation}
+    \bar{P}_{h,c,i}^{(k)}
+    =
+    \frac{1}{\left|\mathcal{B}_{h,c}^{(k)}\right|}
+    \sum_{q \in \mathcal{B}_{h,c}^{(k)}}
+    P_{q,m_i^{(k)}}^{(k)},
+\end{equation}
+\begin{equation}
+    Z_i^{(k)}
+    =
+    \frac{1}{C_k}
+    \sum_{q=1}^{C_k}
+    P_{q,m_i^{(k)}}^{(k)}
+    + \varepsilon.
+\end{equation}
+Here \(m_i^{(k)}\) is the Elelet frame corresponding to contour frame \(i\),
+\(C_k\) is the number of channels for representation \(k\), and
+\(\varepsilon\) is a small constant for numerical stability.
+
+The harmonic salience score is then
+\begin{equation}
+    S_i(c)
+    =
+    \sum_{k \in \mathcal{K}}
+    \sum_{h=1}^{H_c}
+    \frac{1}{h^\gamma}
+    \frac{
+        \bar{P}_{h,c,i}^{(k)}
+    }{
+        Z_i^{(k)}
+    },
+\end{equation}
+where \(\gamma\) controls the harmonic weighting.
+
+The best candidate is selected by maximum salience:
+\begin{equation}
+    c_i^\star
+    =
+    \operatorname*{argmax}_{c \in \mathcal{C}_i}
+    S_i(c).
+\end{equation}
+
+When enabled, a quadratic sub-bin correction is applied to the winning
+candidate using its neighboring scores:
+\begin{equation}
+    \Delta_i
+    =
+    \frac{1}{2}
+    \frac{
+        S_i(c_i^\star - 1) - S_i(c_i^\star + 1)
+    }{
+        S_i(c_i^\star - 1)
+        -
+        2S_i(c_i^\star)
+        +
+        S_i(c_i^\star + 1)
+    },
+\end{equation}
+\begin{equation}
+    \tilde{c}_i^\star
+    =
+    \operatorname{clip}
+    \left(
+        c_i^\star + \Delta_i,
+        1,
+        C - 2
+    \right).
+\end{equation}
+If sub-bin interpolation is disabled, then \(\tilde{c}_i^\star = c_i^\star\).
+
+The refined fundamental frequency is obtained by interpolating the auditory
+frequency axis at the selected bin and mapping back to Hz:
+\begin{equation}
+    \hat{f}_i
+    =
+    A^{-1}
+    \left(
+        \operatorname{interp}
+        \left(
+            \tilde{c}_i^\star,
+            \{a_c\}_{c=1}^{C}
+        \right)
+    \right).
+\end{equation}
+
+If median smoothing is enabled, it is applied only inside contiguous voiced
+regions:
+\begin{equation}
+    \hat{f}_i^{\,\mathrm{smooth}}
+    =
+    \operatorname{median}
+    \left(
+        \hat{f}_{i-w},
+        \ldots,
+        \hat{f}_{i},
+        \ldots,
+        \hat{f}_{i+w}
+    \right),
+\end{equation}
+where \(2w+1\) is the median filter length.
+
+Finally, the refined contour is converted back to first-harmonic space for
+output:
+\begin{equation}
+    H1_i^{\mathrm{refined}}
+    =
+    2\hat{f}_i^{\,\mathrm{smooth}}.
+\end{equation}
+

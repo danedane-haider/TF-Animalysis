@@ -29,7 +29,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from f0_extraction.pipeline import extracted_dir_name, normalize_algorithm
+from f0_extraction.pipeline import extracted_dir, normalize_algorithm
 
 
 REPRESENTATIONS = ("elelet", "stft")
@@ -361,7 +361,7 @@ def extract_f0_from_dataset(
     pipeline = normalize_representation(pipeline)
     algorithm_name = normalize_algorithm(algorithm_name or ("pyin" if method == "pyin" else pipeline))
     audio_dir = Path(audio_dir)
-    output_dir = audio_dir / (output_dir_name or extracted_dir_name(algorithm_name))
+    output_dir = audio_dir / (output_dir_name or extracted_dir(algorithm_name))
     output_dir.mkdir(parents=True, exist_ok=True)
 
     audio_files = sorted(audio_dir.glob("*.wav"))
