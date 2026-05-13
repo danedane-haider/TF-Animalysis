@@ -64,6 +64,7 @@ axes[1].set_title("MaskedEleSpectrogram")
 axes[1].set_xlabel("Time")
 
 plt.tight_layout()
+plt.savefig(PROJECT_ROOT / "demos/masked_elespectrogram.png")
 plt.show()
 
 
@@ -115,4 +116,5 @@ axes[1].set_title("MaskedEleCC")
 axes[1].set_xlabel("Time")
 
 plt.tight_layout()
+plt.savefig(PROJECT_ROOT / "demos/masked_elecc.png")
 plt.show()

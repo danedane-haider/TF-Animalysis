@@ -161,7 +161,7 @@ print("\n" + "=" * 60)
 print("Visualizations")
 print("=" * 60)
 
-fig, axes = plt.subplots(3, 1, figsize=(12, 8))
+fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
 # figure title
 fig.suptitle('Spectrogram vs MelSpectrogram vs EleSpectrogram', fontsize=16)
@@ -185,9 +185,10 @@ axes[2].set_ylabel('EleScale Bin')
 axes[2].set_xlabel('Time')
 
 plt.tight_layout()
+plt.savefig(PROJECT_ROOT / "demos/spectrogram_comparison.png")
 plt.show()
 
-fig, axes = plt.subplots(2, 1, figsize=(12, 8))
+fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True, sharey=True)
 
 fig.suptitle('EleSpectrogram vs Elelet Coefficients', fontsize=16)
 
@@ -204,9 +205,10 @@ axes[1].set_ylabel('EleScale Bin')
 axes[1].set_xlabel('Time')
 
 plt.tight_layout()
+plt.savefig(PROJECT_ROOT / "demos/ele_spectrogram_vs_elelet.png")
 plt.show()
 
-fig, axes = plt.subplots(2, 1, figsize=(12, 8))
+fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True, sharey=True)
 
 fig.suptitle('MFCC vs EleCC', fontsize=16)
 
@@ -223,4 +225,5 @@ axes[1].set_ylabel('EleCC Bin')
 axes[1].set_xlabel('Time')
 
 plt.tight_layout()
+plt.savefig(PROJECT_ROOT / "demos/mfcc_vs_elecc.png")
 plt.show()
