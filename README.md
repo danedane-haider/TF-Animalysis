@@ -73,8 +73,8 @@ transform = EleSpectrogram(
     sample_rate=16000,
     n_fft=8192,
     hop_length=320,
-    fmin=5,
-    fmax=500,
+    f_min=5,
+    f_max=500,
     n_mels=128,
     scale="elelog",
     power=1.0,
@@ -89,7 +89,7 @@ Important parameters:
 - `sample_rate`: audio sample rate, usually `16000`.
 - `n_fft`: STFT size.
 - `hop_length`: frame spacing in samples.
-- `fmin`, `fmax`: frequency range in Hz.
+- `f_min`, `f_max`: frequency range in Hz.
 - `n_mels`: number of output frequency bins.
 - `scale`: auditory scale, for example `"elelog"` or `"mel"`.
 - `pad_mode`: STFT boundary padding; default is `"reflect"`.
@@ -107,8 +107,8 @@ transform = Elelet(
     kernel_size=8192,
     num_channels=128,
     stride=320,
-    fmin=5,
-    fmax=500,
+    f_min=5,
+    f_max=500,
     fs=16000,
     supp_mult=1,
     scale="elelog",
@@ -151,8 +151,8 @@ masked_transform = MaskedEleSpectrogram(
     sample_rate=16000,
     n_fft=8192,
     hop_length=320,
-    fmin=5,
-    fmax=500,
+    f_min=5,
+    f_max=500,
     n_mels=128,
     scale="elelog",
     power=1.0,
@@ -204,8 +204,8 @@ transform = EleCC(
     melkwargs={
         "n_fft": 8192,
         "hop_length": 320,
-        "fmin": 5,
-        "fmax": 500,
+        "f_min": 5,
+        "f_max": 500,
         "n_mels": 128,
         "scale": "elelog",
     },
@@ -227,8 +227,8 @@ masked_transform = MaskedEleCC(
     melkwargs={
         "n_fft": 8192,
         "hop_length": 320,
-        "fmin": 5,
-        "fmax": 500,
+        "f_min": 5,
+        "f_max": 500,
         "n_mels": 128,
         "scale": "elelog",
     },
@@ -273,7 +273,7 @@ MaskedEleCC           -> (1, 40, 163)
 ## Practical Notes
 
 - Use `torch.log(x + 1e-10)` before plotting magnitude-like outputs.
-- Keep `n_fft`, `hop_length`, `fmin`, `fmax`, and `n_mels` the same when
+- Keep `n_fft`, `hop_length`, `f_min`, `f_max`, and `n_mels` the same when
   comparing regular and masked versions.
 - Use `pad_mode="reflect"` when you want boundary behavior similar to STFT
   centering. Use `pad_mode="circular"` only when wraparound convolution is
