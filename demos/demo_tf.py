@@ -16,8 +16,8 @@ SAMPLE_RATE = 16000
 N_FFT = 8192
 HOP_LENGTH = 320
 NUM_CHANNELS = 128
-FMIN = 5
-FMAX = 500
+F_MIN = 5
+F_MAX = 500
 AUDIO_PATH = PROJECT_ROOT / "data/test_rumbles/ADDO2012A008.WAV_a0014_10.wav"
 
 audio, sr = librosa.load(AUDIO_PATH)
@@ -44,8 +44,8 @@ elelet_transform = Elelet(
     kernel_size=N_FFT,
     num_channels=NUM_CHANNELS,
     stride=HOP_LENGTH,
-    fmin=FMIN,
-    fmax=FMAX,
+    f_min=F_MIN,
+    f_max=F_MAX,
     fs=SAMPLE_RATE,
     supp_mult=1,
     scale='elelog',
@@ -66,8 +66,8 @@ mel_spec = EleSpectrogram(
     sample_rate=SAMPLE_RATE,
     n_fft=N_FFT,
     hop_length=HOP_LENGTH,
-    fmin=FMIN,
-    fmax=FMAX,
+    f_min=F_MIN,
+    f_max=F_MAX,
     n_mels=NUM_CHANNELS,
     scale='elelog',
     power=1.0,
@@ -86,8 +86,8 @@ mfcc_transform = EleCC(
     melkwargs={
         "n_fft": N_FFT,
         "hop_length": HOP_LENGTH,
-        "fmin": FMIN,
-        "fmax": FMAX,
+        "f_min": F_MIN,
+        "f_max": F_MAX,
         "n_mels": NUM_CHANNELS,
         "scale": "elelog",
     },
@@ -103,8 +103,8 @@ print("=" * 60)
 #     sample_rate=SAMPLE_RATE,
 #     n_fft=N_FFT,
 #     hop_length=HOP_LENGTH,
-#     fmin=FMIN,
-#     fmax=FMAX,
+#     f_min=F_MIN,
+#     f_max=F_MAX,
 #     n_mels=NUM_CHANNELS,
 #     scale='mel',
 # )
@@ -114,8 +114,8 @@ mel_spec_standard = MelSpectrogram(
     sample_rate=SAMPLE_RATE,
     n_fft=N_FFT,
     hop_length=HOP_LENGTH,
-    f_min=FMIN,
-    f_max=FMAX,
+    f_min=F_MIN,
+    f_max=F_MAX,
     n_mels=NUM_CHANNELS,
 )
 mel_output_standard = torch.log(mel_spec_standard(audio_torch))
@@ -132,8 +132,8 @@ mfcc_transform_standard = MFCC(
     melkwargs={
         "n_fft": N_FFT,
         "hop_length": HOP_LENGTH,
-        "f_min": FMIN,
-        "f_max": FMAX,
+        "f_min": F_MIN,
+        "f_max": F_MAX,
         "n_mels": NUM_CHANNELS,
     },
 )
@@ -150,7 +150,7 @@ spectrogram_transform = Spectrogram(
     power=1.0,
 )
 spectrogram_output = torch.log(spectrogram_transform(audio_torch))
-spectrogram_output = spectrogram_output[:, :FMAX, :]
+spectrogram_output = spectrogram_output[:, :F_MAX, :]
 print(f"Spectrogram output shape: {spectrogram_output.shape}")
 
 

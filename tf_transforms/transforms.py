@@ -20,8 +20,8 @@ class Elelet:
         kernel_size: Size of the convolution kernel (default: 8192)
         num_channels: Number of filter channels (default: 1024)
         stride: Downsampling factor for convolution (default: 320)
-        fmin: Minimum frequency in Hz (default: 5)
-        fmax: Maximum frequency in Hz (default: 1000)
+        f_min: Minimum frequency in Hz (default: 5)
+        f_max: Maximum frequency in Hz (default: 1000)
         fs: Sample rate in Hz (default: 16000)
         supp_mult: Support multiplier (default: 0.2)
         scale: Frequency scale ('elelog' or other) (default: 'elelog')
@@ -34,8 +34,8 @@ class Elelet:
         kernel_size=8192,
         num_channels=1024,
         stride=320,
-        fmin=5,
-        fmax=1000,
+        f_min=5,
+        f_max=1000,
         fs=16000,
         supp_mult=0.2,
         scale='elelog',
@@ -46,8 +46,8 @@ class Elelet:
         [kernels, _, fc, _, _] = audfilters(
             kernel_size=kernel_size,
             num_channels=num_channels,
-            fmin=fmin,
-            fmax=fmax,
+            fmin=f_min,
+            fmax=f_max,
             fs=fs,
             supp_mult=supp_mult,
             scale=scale,
@@ -62,18 +62,18 @@ class Elelet:
         self.stride = stride
         self.fs = fs
         self.num_channels = num_channels
-        self.fmax = fmax
-        self.fmin = fmin
+        self.f_max = f_max
+        self.f_min = f_min
         self.use_torch = use_torch
         self.pad_mode = pad_mode
 
     def forward(self, audio):
-        if self.fmin > 0:
-            # only compute channels above fmin
+        if self.f_min > 0:
+            # only compute channels above f_min
             if self.use_torch:
-                idx_start = torch.argmax((self.fc >= self.fmin).to(torch.int)).item()
+                idx_start = torch.argmax((self.fc >= self.f_min).to(torch.int)).item()
             else:
-                idx_start = np.argmax(self.fc >= self.fmin)
+                idx_start = np.argmax(self.fc >= self.f_min)
             kernels_to_use = self.kernels[idx_start:, :]
         else:
             kernels_to_use = self.kernels
@@ -93,7 +93,7 @@ class Elelet:
         self,
         c,
         L,
-        fmax=None,
+        f_max=None,
         log_scale=False,
         vmin=None,
         cmap="magma",
@@ -108,7 +108,7 @@ class Elelet:
         Args:
             c: Filterbank coefficients of shape (num_channels, num_frames)
             L (int, optional): Original signal length for time axis scaling. Default: None
-            fmax (float, optional): Maximum frequency to display in Hz. Default: None
+            f_max (float, optional): Maximum frequency to display in Hz. Default: None
             log_scale (bool): Whether to apply log10 scaling to coefficients. Default: False
             vmin (float, optional): Minimum value for dynamic range clipping. Default: None
             cmap (str): Matplotlib colormap name. Default: 'inferno'
@@ -119,7 +119,7 @@ class Elelet:
             plt.Figure: Matplotlib figure object containing the plot
 
         Example:
-            >>> transform = Elelet(num_channels=1024, fmax=100, fs=16000)
+            >>> transform = Elelet(num_channels=1024, f_max=100, fs=16000)
             >>> coeffs = transform(audio)
             >>> fig = transform.plot_ISACgram(coeffs, L=len(audio), log_scale=True)
             >>> plt.show()
@@ -135,18 +135,18 @@ class Elelet:
         if log_scale:
             c = np.log10(c + 1e-10)
 
-        if fmax is None:
-            c = c[: np.argmax(fc > self.fmax), :]
+        if f_max is None:
+            c = c[: np.argmax(fc > self.f_max), :]
         else:
-            c = c[: np.argmax(fc > fmax), :]
+            c = c[: np.argmax(fc > f_max), :]
 
         if vmin is not None:
             ax.pcolor(c, cmap=cmap, vmin=np.min(c) * vmin)
         else:
             ax.pcolor(c, cmap=cmap)
 
-        fc_fmin = self.fc[fc > self.fmin]
-        locs = np.linspace(self.fmin, c.shape[0] - 1, min(len(fc_fmin), 10)).astype(int)
+        fc_fmin = self.fc[fc > self.f_min]
+        locs = np.linspace(self.f_min, c.shape[0] - 1, min(len(fc_fmin), 10)).astype(int)
         ax.set_yticks(locs)
         ax.set_yticklabels([int(np.round(fc_fmin[i])) for i in locs])
 
@@ -180,8 +180,8 @@ class EleSpectrogram(torch.nn.Module):
         n_fft (int): Size of FFT. Default: 400
         win_length (int, optional): Window size. Default: n_fft
         hop_length (int, optional): Length of hop between STFT windows. Default: win_length // 2
-        fmin (float): Minimum frequency. Default: 0.0
-        fmax (float, optional): Maximum frequency. Default: fs / 2.0
+        f_min (float): Minimum frequency. Default: 0.0
+        f_max (float, optional): Maximum frequency. Default: fs / 2.0
         num_channels (int): Number of mel filterbanks. Default: 128
         window_fn (callable, optional): Window function. Default: torch.hann_window
         power (float): Exponent for magnitude spectrogram. Default: 2.0
@@ -204,8 +204,8 @@ class EleSpectrogram(torch.nn.Module):
         n_fft: int = 8192,
         win_length: int = 8192,
         hop_length: int = 320,
-        fmin: float = 5.0,
-        fmax: float = 1000,
+        f_min: float = 5.0,
+        f_max: float = 1000,
         n_mels: int = 1024,
         window_fn = None,
         power: float = 1.0,
@@ -222,8 +222,8 @@ class EleSpectrogram(torch.nn.Module):
         self.n_fft = n_fft
         self.win_length = win_length if win_length is not None else n_fft
         self.hop_length = hop_length if hop_length is not None else self.win_length // 2
-        self.fmin = fmin
-        self.fmax = fmax if fmax is not None else float(sample_rate // 2)
+        self.f_min = f_min
+        self.f_max = f_max if f_max is not None else float(sample_rate // 2)
         self.n_mels = n_mels
         self.power = power
         self.normalized = normalized
@@ -242,8 +242,8 @@ class EleSpectrogram(torch.nn.Module):
         n_freqs = n_fft // 2 + 1 if onesided else n_fft
         self.mel_filterbank = melscale_fbanks(
             n_freqs=n_freqs,
-            fmin=self.fmin,
-            fmax=self.fmax,
+            fmin=self.f_min,
+            fmax=self.f_max,
             n_mels=self.n_mels,
             sample_rate=self.sample_rate,
             norm=self.norm,
