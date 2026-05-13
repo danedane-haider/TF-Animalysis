@@ -18,7 +18,7 @@ HOP_LENGTH = 320
 NUM_CHANNELS = 128
 FMIN = 5
 FMAX = 500
-AUDIO_PATH = PROJECT_ROOT / "data/test_examples_rumbles/ADDO2012A008.WAV_a0014_10.wav"
+AUDIO_PATH = PROJECT_ROOT / "data/test_rumbles/ADDO2012A008.WAV_a0014_10.wav"
 
 audio, sr = librosa.load(AUDIO_PATH)
 

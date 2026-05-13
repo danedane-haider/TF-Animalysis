@@ -399,3 +399,49 @@ class MaskedEleSpectrogram(EleSpectrogram):
         if return_mask:
             return mel_spec, mask
         return mel_spec
+
+
+class MaskedEleCC(MaskedEleSpectrogram, EleCC):
+    def __init__(
+        self,
+        sample_rate=16000,
+        n_mfcc=40,
+        dct_type=2,
+        norm="ortho",
+        log_mels=True,
+        melkwargs=None,
+    ):
+        if melkwargs is None:
+            melkwargs = {}
+
+        MaskedEleSpectrogram.__init__(
+            self,
+            sample_rate=sample_rate,
+            **melkwargs,
+        )
+
+        self.n_mfcc = n_mfcc
+        self.dct_type = dct_type
+        self.norm = norm
+        self.log_mels = log_mels
+        self.dct_mat = EleCC._create_dct_matrix(
+            self,
+            n_mfcc=n_mfcc,
+            n_mels=self.n_mels,
+            dct_type=dct_type,
+            norm=norm,
+        )
+
+    def forward(self, waveform, f0_hz, **mask_kwargs):
+        mel_spec = MaskedEleSpectrogram.forward(
+            self,
+            waveform,
+            f0_hz,
+            **mask_kwargs,
+        )
+
+        if self.log_mels:
+            mel_spec = torch.log(mel_spec + 1e-10)
+
+        dct_mat = self.dct_mat.to(device=mel_spec.device, dtype=mel_spec.dtype)
+        return torch.matmul(dct_mat, mel_spec)
