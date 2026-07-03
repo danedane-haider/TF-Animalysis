@@ -21,6 +21,12 @@ def main() -> None:
     parser.add_argument("--input", type=str, required=True, help="Directory with WAV files.")
     parser.add_argument("--output_dir_name", type=str, default=None, help="Output directory under input dir.")
     parser.add_argument(
+        "--use_precomputed_representations",
+        type=str,
+        default=None,
+        help="Path to a precomputed STFT folder, or a parent containing stft_*.",
+    )
+    parser.add_argument(
         "--algorithm_name",
         type=str,
         default="stft",
@@ -56,6 +62,7 @@ def main() -> None:
         median_kernel=args.median_kernel,
         stft_n_fft=args.n_fft,
         stft_win_length=args.win_length,
+        use_precomputed_representations=args.use_precomputed_representations,
     )
 
 

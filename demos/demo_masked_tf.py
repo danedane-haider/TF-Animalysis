@@ -21,7 +21,7 @@ audio_torch = torch.tensor(audio).unsqueeze(0)
 
 transform_kwargs = dict(
     sample_rate=SAMPLE_RATE,
-    n_fft=8192,
+    n_fft=8192 * 4,
     hop_length=320,
     f_min=5,
     f_max=500,
@@ -54,17 +54,17 @@ vmax = regular_image.max()
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True, sharey=True)
 
-axes[0].imshow(regular_image, aspect="auto", origin="lower", cmap="magma", vmin=vmin, vmax=vmax)
+axes[0].imshow(regular_image, aspect="auto", origin="lower", cmap="Greys", vmin=vmin, vmax=vmax)
 axes[0].set_title("EleSpectrogram")
 axes[0].set_ylabel("Elelog Bin")
 axes[0].set_xlabel("Time")
 
-axes[1].imshow(masked_image, aspect="auto", origin="lower", cmap="magma", vmin=vmin, vmax=vmax)
+axes[1].imshow(masked_image, aspect="auto", origin="lower", cmap="Greys", vmin=vmin, vmax=vmax)
 axes[1].set_title("MaskedEleSpectrogram")
 axes[1].set_xlabel("Time")
 
 plt.tight_layout()
-plt.savefig(PROJECT_ROOT / "demos/masked_elespectrogram.png")
+plt.savefig(PROJECT_ROOT / "demos/plots/masked_elespectrogram.png")
 plt.show()
 
 
@@ -73,7 +73,7 @@ transform_kwargs = dict(
     n_mfcc=40,
     log_mels=True,
     melkwargs={
-        "n_fft": 8192,
+        "n_fft": 8192 * 4,
         "hop_length": 320,
         "f_min": 5,
         "f_max": 500,
@@ -106,15 +106,15 @@ vmax = regular_image.max()
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True, sharey=True)
 
-axes[0].imshow(regular_image, aspect="auto", origin="lower", cmap="magma", vmin=vmin, vmax=vmax)
+axes[0].imshow(regular_image, aspect="auto", origin="lower", cmap="Greys", vmin=vmin, vmax=vmax)
 axes[0].set_title("EleCC")
 axes[0].set_ylabel("Cepstral Coefficient")
 axes[0].set_xlabel("Time")
 
-axes[1].imshow(masked_image, aspect="auto", origin="lower", cmap="magma", vmin=vmin, vmax=vmax)
+axes[1].imshow(masked_image, aspect="auto", origin="lower", cmap="Greys", vmin=vmin, vmax=vmax)
 axes[1].set_title("MaskedEleCC")
 axes[1].set_xlabel("Time")
 
 plt.tight_layout()
-plt.savefig(PROJECT_ROOT / "demos/masked_elecc.png")
+plt.savefig(PROJECT_ROOT / "demos/plots/masked_elecc.png")
 plt.show()

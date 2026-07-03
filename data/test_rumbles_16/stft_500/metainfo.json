@@ -1,0 +1,11 @@
+{
+  "parameters": {
+    "center": true,
+    "hop_length": 320,
+    "n_fft": 8192,
+    "sr": 16000,
+    "win_length": null,
+    "window": "hann"
+  },
+  "representation": "stft"
+}

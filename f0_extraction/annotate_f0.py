@@ -26,19 +26,35 @@ from f0_extraction.pipeline import (
 )
 
 
+def resolve_representation_cache(audio_dir, requested_dir, representation, f_max):
+    """Resolve an explicit/default cache while retaining older single caches."""
+    audio_dir = Path(audio_dir)
+    if requested_dir:
+        requested = Path(requested_dir)
+        return requested if requested.is_absolute() else audio_dir / requested
+
+    preferred = audio_dir / representation_dir(representation, f_max)
+    if preferred.exists():
+        return preferred
+    alternatives = sorted(path for path in audio_dir.glob(f"{representation}_*") if path.is_dir())
+    if len(alternatives) == 1:
+        return alternatives[0]
+    return preferred
+
+
 class F0Corrector:
     def __init__(self, audio_dir, sr=16000, frame_resolution=0.016,
-                 n_fft=8192, hop_length=256, fmin=0, fmax=100, start_idx=0,
+                 n_fft=8192, hop_length=256, f_min=0, f_max=100, start_idx=0,
                  use_precomputed=True, algorithm_name=None,
                  f0_dir=None, corrected_dir=None,
                  stft_dir=None, elelet_dir=None, initial_spec_mode=None,
-                 representation_fmax=750, enable_elelet_view=True, max_harmonic=10):
+                 representation_f_max=500, enable_elelet_view=True, max_harmonic=10):
         self.audio_dir = Path(audio_dir)
         self.sr = sr
         self.frame_resolution = frame_resolution
         self.n_fft = n_fft
-        self.fmin = fmin
-        self.fmax = fmax
+        self.f_min = f_min
+        self.f_max = f_max
         self.hop_length = hop_length
         self.use_precomputed = use_precomputed
         self.algorithm_name = normalize_algorithm(algorithm_name) if algorithm_name else None
@@ -51,19 +67,20 @@ class F0Corrector:
         self.enable_elelet_view = enable_elelet_view or self.spec_mode == "elelet"
 
         # Pre-computed representation directories
-        self.stft_dir = self.audio_dir / (stft_dir or representation_dir("stft", representation_fmax))
-        self.elelet_dir = self.audio_dir / (elelet_dir or representation_dir("elelet", representation_fmax))
+        self.stft_dir = resolve_representation_cache(
+            self.audio_dir, stft_dir, "stft", representation_f_max
+        )
+        self.elelet_dir = resolve_representation_cache(
+            self.audio_dir, elelet_dir, "elelet", representation_f_max
+        )
 
         # Check if pre-computed directories exist
         if self.use_precomputed:
-            active_dir = self.stft_dir if self.spec_mode == "stft" else self.elelet_dir
-            if not active_dir.exists():
+            if not self.stft_dir.exists() and not self.elelet_dir.exists():
                 print(f"Warning: Pre-computed directories not found!")
                 print(f"  STFT: {self.stft_dir.exists()} - {self.stft_dir}")
                 print(f"  Elelet: {self.elelet_dir.exists()} - {self.elelet_dir}")
-                print(f"  Falling back to on-the-fly computation")
-                print(f"  Run the matching precompute_representations_* script first to pre-compute")
-                self.use_precomputed = False
+                print(f"  Missing representations will be computed on demand")
 
         self.elelet_transform = None
         if self.enable_elelet_view:
@@ -251,8 +268,8 @@ class F0Corrector:
             kernel_size=16000+8000,
             num_channels=1024,
             stride=256,
-            fmin=5,
-            fmax=500,
+            f_min=5,
+            f_max=500,
             fs=16000,
             supp_mult=0.2,
             scale='elelog',
@@ -465,12 +482,12 @@ class F0Corrector:
                 precomputed_path = self.stft_dir / f"{audio_path.stem}.npz"
                 if precomputed_path.exists():
                     data = np.load(precomputed_path)
-                    precomputed_fmax = data.get('fmax', 750)  # Default to 750 if not stored
+                    precomputed_f_max = data.get('f_max', 750)  # Default to 750 if not stored
 
-                    # Only recompute if requested fmax > precomputed fmax
-                    if self.fmax > precomputed_fmax:
-                        print(f"→ Requested fmax={self.fmax}Hz > precomputed fmax={precomputed_fmax}Hz")
-                        print(f"  Recomputing STFT with fmax={self.fmax}Hz...")
+                    # Only recompute if requested f_max > precomputed f_max
+                    if self.f_max > precomputed_f_max:
+                        print(f"→ Requested f_max={self.f_max}Hz > precomputed f_max={precomputed_f_max}Hz")
+                        print(f"  Recomputing STFT with f_max={self.f_max}Hz...")
                         # Fall through to recomputation
                     else:
                         # Use precomputed data (will be sliced in update_plot)
@@ -496,24 +513,31 @@ class F0Corrector:
                 audio_path = self.audio_files[self.current_idx]
                 precomputed_path = self.elelet_dir / f"{audio_path.stem}.npz"
                 if precomputed_path.exists():
-                    data = np.load(precomputed_path)
-                    precomputed_fmax = data.get('fmax', 750)  # Default to 750 if not stored
+                    with np.load(precomputed_path) as data:
+                        precomputed_f_max = float(data.get('f_max', 750))
 
-                    # Only recompute if requested fmax > precomputed fmax
-                    if self.fmax > precomputed_fmax:
-                        print(f"→ Requested fmax={self.fmax}Hz > precomputed fmax={precomputed_fmax}Hz")
-                        print(f"  Recomputing Elelet with fmax={self.fmax}Hz...")
-                        # Fall through to recomputation
-                    else:
-                        # Use precomputed data (will be sliced in update_plot)
-                        self.elelet_coeffs = data['coeffs']
-                        self.elelet_coeffs_abs = data['coeffs_abs']
-                        self.elelet_times = data['times']
-                        # Update transform's fc if available in precomputed data
-                        if 'fc' in data:
-                            self.elelet_transform.fc = data['fc']
-                        self.elelet_cached = True
-                        return
+                        # Only recompute if requested f_max > precomputed f_max
+                        if self.f_max > precomputed_f_max:
+                            print(f"→ Requested f_max={self.f_max}Hz > precomputed f_max={precomputed_f_max}Hz")
+                            print(f"  Recomputing Elelet with f_max={self.f_max}Hz...")
+                            # Fall through to recomputation
+                        else:
+                            if 'coeffs_abs' in data:
+                                self.elelet_coeffs_abs = np.asarray(data['coeffs_abs'])
+                            elif 'coeffs' in data:
+                                self.elelet_coeffs_abs = np.abs(data['coeffs'])
+                            else:
+                                raise ValueError(f"{precomputed_path} has no Elelet coefficients")
+                            # Complex coefficients are optional; annotation only
+                            # displays the magnitude representation.
+                            self.elelet_coeffs = (
+                                np.asarray(data['coeffs']) if 'coeffs' in data else None
+                            )
+                            self.elelet_times = np.asarray(data['times'])
+                            if 'fc' in data:
+                                self.elelet_transform.fc = np.asarray(data['fc'])
+                            self.elelet_cached = True
+                            return
 
             # Fall back to on-the-fly computation
             self.elelet_coeffs = self.elelet_transform(self.audio)
@@ -644,7 +668,7 @@ class F0Corrector:
             fundamental_freqs = h1_freqs / 2.0
             for harmonic in range(2, self.max_harmonic + 1):
                 freqs = fundamental_freqs * harmonic
-                valid = (fundamental_freqs > 0) & (freqs <= self.fmax)
+                valid = (fundamental_freqs > 0) & (freqs <= self.f_max)
                 if not np.any(valid):
                     continue
                 self.ax.plot(
@@ -664,7 +688,7 @@ class F0Corrector:
             time_idx = times * self.sr / self.elelet_transform.stride
             for harmonic in range(2, self.max_harmonic + 1):
                 freqs = fundamental_freqs * harmonic
-                valid = (fundamental_freqs > 0) & (freqs <= self.fmax)
+                valid = (fundamental_freqs > 0) & (freqs <= self.f_max)
                 if not np.any(valid):
                     continue
                 freq_idx = np.array([freq_to_channel_idx(f) for f in freqs])
@@ -689,7 +713,7 @@ class F0Corrector:
             # Compute STFT if needed
             self.compute_stft()
             # STFT spectrogram
-            freq_mask = (self.spec_freqs >= self.fmin) & (self.spec_freqs <= self.fmax)
+            freq_mask = (self.spec_freqs >= self.f_min) & (self.spec_freqs <= self.f_max)
             self.ax.pcolormesh(self.spec_times, self.spec_freqs[freq_mask],
                               self.S_db[freq_mask, :],
                               shading='gouraud', cmap='Greys', vmin=-80, vmax=0)
@@ -697,14 +721,14 @@ class F0Corrector:
             # Compute Elelet if needed
             self.compute_elelet()
             # Elelet spectrogram - using Elelet's plot logic
-            c = np.abs(self.elelet_coeffs)
+            c = self.elelet_coeffs_abs
             c = np.log10(c + 1e-10)  # Apply log scale
 
-            # Filter to fmax (same logic as transform.plot)
-            fc = self.elelet_transform.fc[self.elelet_transform.fc >= self.elelet_transform.fmin]
-            if self.fmax is not None:
-                freq_idx_max = np.argmax(fc > self.fmax)
-                if freq_idx_max == 0:  # All frequencies below fmax
+            # Filter to f_max (same logic as transform.plot)
+            fc = self.elelet_transform.fc[self.elelet_transform.fc >= self.elelet_transform.f_min]
+            if self.f_max is not None:
+                freq_idx_max = np.argmax(fc > self.f_max)
+                if freq_idx_max == 0:  # All frequencies below f_max
                     freq_idx_max = len(fc)
                 c = c[:freq_idx_max, :]
                 fc_filtered = fc[:freq_idx_max]
@@ -727,7 +751,7 @@ class F0Corrector:
             self.ax.pcolor(c, cmap='Greys', vmin=vmin, vmax=vmax)
 
             # Set y-axis ticks to show actual frequencies (like in transform.plot)
-            locs = np.linspace(self.elelet_transform.fmin, c.shape[0] - 1, min(len(fc), 10)).astype(int)
+            locs = np.linspace(self.elelet_transform.f_min, c.shape[0] - 1, min(len(fc), 10)).astype(int)
             self.ax.set_yticks(locs)
             self.ax.set_yticklabels([int(np.round(fc[i])) for i in locs])
 
@@ -742,9 +766,9 @@ class F0Corrector:
         # Plot f0 overlays (convert coordinates for Elelet mode)
         if self.spec_mode == 'elelet':
             # Convert frequency from Hz to channel indices
-            # Note: when fmin > 0, coefficients only contain frequencies >= fmin
+            # Note: when f_min > 0, coefficients only contain frequencies >= f_min
             fc = self.elelet_transform.fc
-            fc_filtered = fc[fc >= self.elelet_transform.fmin]
+            fc_filtered = fc[fc >= self.elelet_transform.f_min]
             def freq_to_channel_idx(freq_hz):
                 """Convert frequency in Hz to channel index"""
                 if freq_hz <= 0:
@@ -816,7 +840,7 @@ class F0Corrector:
 
         # Set y-axis limits based on mode
         if self.spec_mode == 'stft':
-            self.ax.set_ylim([self.fmin, self.fmax])
+            self.ax.set_ylim([self.f_min, self.f_max])
         # For Elelet mode, the y-limits are automatically set by the pcolor plot
 
         self.fig.canvas.draw()
@@ -836,9 +860,9 @@ class F0Corrector:
             # Convert time from frame index to seconds
             time = time * self.elelet_transform.stride / self.sr
             # Convert frequency from channel index to Hz
-            # Note: when fmin > 0, coefficients only contain frequencies >= fmin
+            # Note: when f_min > 0, coefficients only contain frequencies >= f_min
             fc = self.elelet_transform.fc
-            fc_filtered = fc[fc >= self.elelet_transform.fmin]
+            fc_filtered = fc[fc >= self.elelet_transform.f_min]
             freq_idx = int(np.clip(freq, 0, len(fc_filtered) - 1))
             freq = fc_filtered[freq_idx]
 
@@ -1004,7 +1028,7 @@ class F0Corrector:
                     self.corrected_f0[mask] = interp(self.f0_time[mask])
 
         # Clip to valid range
-        self.corrected_f0 = np.clip(self.corrected_f0, 0, self.fmax)
+        self.corrected_f0 = np.clip(self.corrected_f0, 0, self.f_max)
 
     def clear_corrections(self):
         """Clear all correction points and start/end lines"""
@@ -1132,7 +1156,7 @@ Examples:
   python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir f0_elelet
 
   # With custom frequency range
-  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir f0_stft --fmin 0 --fmax 80
+  python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir f0_stft --f_min 0 --f_max 80
 
   # Start at sample number 5 (6th file, 0-indexed)
   python f0_extraction/annotate_f0.py --input data/rumbles --f0_dir f0_elelet --start 5
@@ -1174,7 +1198,7 @@ Note: Files are automatically saved when you navigate to the next file or quit.
                         help='Explicit precomputed Elelet directory under --input')
     parser.add_argument('--initial_spec_mode', choices=('elelet', 'stft'), default='stft',
                         help='Initial spectrogram view')
-    parser.add_argument('--representation_fmax', type=float, default=750,
+    parser.add_argument('--representation_f_max', type=float, default=500,
                         help='Frequency label used for default precomputed representation directories')
     parser.add_argument('--enable_elelet_view', action=argparse.BooleanOptionalAction, default=True,
                         help='Allow switching to the Elelet spectrogram view')
@@ -1188,9 +1212,9 @@ Note: Files are automatically saved when you navigate to the next file or quit.
                         help='FFT size for spectrogram (default: 8192)')
     parser.add_argument('--hop_length', type=int, default=256,
                         help='Hop length for spectrogram (default: 256)')
-    parser.add_argument('--fmin', type=float, default=10,
+    parser.add_argument('--f_min', type=float, default=10,
                         help='Minimum frequency to display (Hz, default: 0)')
-    parser.add_argument('--fmax', type=float, default=200,
+    parser.add_argument('--f_max', type=float, default=200,
                         help='Maximum frequency to display (Hz, default: 100)')
     parser.add_argument('--start', type=int, default=0,
                         help='Sample number to start at (0-indexed, default: 0)')
@@ -1207,8 +1231,8 @@ Note: Files are automatically saved when you navigate to the next file or quit.
         hop_length=args.hop_length,
         frame_resolution=args.frame_resolution,
         n_fft=args.n_fft,
-        fmin=args.fmin,
-        fmax=args.fmax,
+        f_min=args.f_min,
+        f_max=args.f_max,
         start_idx=args.start,
         use_precomputed=args.precomputed,
         algorithm_name=args.algorithm_name,
@@ -1217,7 +1241,7 @@ Note: Files are automatically saved when you navigate to the next file or quit.
         stft_dir=args.stft_dir,
         elelet_dir=args.elelet_dir,
         initial_spec_mode=args.initial_spec_mode,
-        representation_fmax=args.representation_fmax,
+        representation_f_max=args.representation_f_max,
         enable_elelet_view=args.enable_elelet_view,
         max_harmonic=args.max_harmonic,
     )

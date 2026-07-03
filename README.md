@@ -114,6 +114,8 @@ transform = Elelet(
     scale="elelog",
     use_torch=True,
     pad_mode="reflect",
+    backend="fft_decimated",
+    channel_batch_size=64,
 )
 
 coeffs = transform(audio_torch)
@@ -124,6 +126,19 @@ print(coeffs.shape)  # (batch, channels, frames)
 `pad_mode="circular"` preserves the old wraparound convolution behavior.
 `pad_mode="reflect"` mirrors the signal at the boundaries before FFT
 convolution, similar in spirit to `torch.stft(center=True, pad_mode="reflect")`.
+
+`backend="fft_decimated"` is the default. It uses spectral aliasing to compute
+only the samples selected by `stride`, while preserving the complex Elelet
+coefficients. The inverse-FFT reduction is
+`gcd(convolution_length, stride)`, so fixed ML input lengths aligned to the
+stride receive the largest speedup. Use `backend="fft"` for the full-IFFT
+reference implementation.
+
+Kernel spectra are cached for the most recently used input length. This avoids
+re-transforming the filters across fixed-size ML batches. Set
+`cache_kernel_fft=False` to disable the cache, or call `clear_fft_cache()` after
+changing the kernels. `channel_batch_size` bounds intermediate memory without
+changing the result; omit it to process every channel together.
 
 ## MaskedEleSpectrogram
 

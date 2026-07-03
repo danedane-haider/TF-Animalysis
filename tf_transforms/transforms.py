@@ -4,8 +4,14 @@ import torch
 
 from pathlib import Path
 
-from .utils_elelet import circ_conv, circ_conv_numpy
 from .utils_auditory_scales import audfilters
+from .utils_elelet import (
+    _numpy_kernel_fft,
+    _torch_kernel_fft,
+    _validate_fft_backend,
+    circ_conv,
+    circ_conv_numpy,
+)
 from .utils_elespectrogram import melscale_fbanks
 from .utils_harmonic_mask import load_f0_csv, masked_spectrogram
 
@@ -27,6 +33,12 @@ class Elelet:
         scale: Frequency scale ('elelog' or other) (default: 'elelog')
         pad_mode: Boundary mode for convolution. Use 'circular' for wraparound
             or 'reflect' to mirror-pad like torch.stft(center=True).
+        backend: FFT implementation. ``'fft'`` computes the full convolution;
+            ``'fft_decimated'`` evaluates only samples selected by ``stride``.
+        channel_batch_size: Optional number of filter channels to process at a
+            time. This bounds intermediate memory for batched ML inputs.
+        cache_kernel_fft: Cache the most recently used kernel spectra. This is
+            useful for repeated, fixed-size ML batches.
     """
 
     def __init__(
@@ -41,7 +53,14 @@ class Elelet:
         scale='elelog',
         use_torch=False,
         pad_mode="circular",
+        backend="fft_decimated",
+        channel_batch_size=None,
+        cache_kernel_fft=True,
     ):
+
+        _validate_fft_backend(backend)
+        if channel_batch_size is not None and channel_batch_size <= 0:
+            raise ValueError("channel_batch_size must be positive or None.")
 
         [kernels, _, fc, _, _] = audfilters(
             kernel_size=kernel_size,
@@ -66,6 +85,54 @@ class Elelet:
         self.f_min = f_min
         self.use_torch = use_torch
         self.pad_mode = pad_mode
+        self.backend = backend
+        self.channel_batch_size = channel_batch_size
+        self.cache_kernel_fft = bool(cache_kernel_fft)
+        self._kernel_fft_cache_key = None
+        self._kernel_fft_cache = None
+
+    def clear_fft_cache(self):
+        """Discard cached kernel spectra, for example after changing kernels."""
+        self._kernel_fft_cache_key = None
+        self._kernel_fft_cache = None
+
+    def _convolution_length(self, audio, kernel_size):
+        length = audio.shape[-1]
+        if self.pad_mode != "circular":
+            length += 2 * (kernel_size // 2)
+        return max(length, kernel_size)
+
+    def _get_kernel_fft(self, audio, kernels):
+        if not self.cache_kernel_fft:
+            return None
+
+        length = self._convolution_length(audio, kernels.shape[-1])
+        if self.use_torch:
+            key = (
+                "torch",
+                length,
+                tuple(kernels.shape),
+                kernels.dtype,
+                audio.device,
+            )
+            if key != self._kernel_fft_cache_key:
+                self._kernel_fft_cache = _torch_kernel_fft(
+                    kernels,
+                    length,
+                    audio.device,
+                )
+                self._kernel_fft_cache_key = key
+        else:
+            key = (
+                "numpy",
+                length,
+                tuple(kernels.shape),
+                kernels.dtype.str,
+            )
+            if key != self._kernel_fft_cache_key:
+                self._kernel_fft_cache = _numpy_kernel_fft(kernels, length)
+                self._kernel_fft_cache_key = key
+        return self._kernel_fft_cache
 
     def forward(self, audio):
         if self.f_min > 0:
@@ -77,13 +144,27 @@ class Elelet:
             kernels_to_use = self.kernels[idx_start:, :]
         else:
             kernels_to_use = self.kernels
+        kernel_fft = self._get_kernel_fft(audio, kernels_to_use)
         if self.use_torch:
-            # if audio is (batch_size, time), extend to (batch_size, 1, time)
-            if len(audio.shape) == 2 and audio.shape[1] != 1:
-                audio = audio.unsqueeze(1)
-            coeffs = circ_conv(audio, kernels_to_use, d=self.stride, pad_mode=self.pad_mode)
+            coeffs = circ_conv(
+                audio,
+                kernels_to_use,
+                d=self.stride,
+                pad_mode=self.pad_mode,
+                backend=self.backend,
+                kernel_fft=kernel_fft,
+                channel_batch_size=self.channel_batch_size,
+            )
         else:
-            coeffs = circ_conv_numpy(audio, kernels_to_use, d=self.stride, pad_mode=self.pad_mode)
+            coeffs = circ_conv_numpy(
+                audio,
+                kernels_to_use,
+                d=self.stride,
+                pad_mode=self.pad_mode,
+                backend=self.backend,
+                kernel_fft=kernel_fft,
+                channel_batch_size=self.channel_batch_size,
+            )
         return coeffs
 
     def __call__(self, audio):

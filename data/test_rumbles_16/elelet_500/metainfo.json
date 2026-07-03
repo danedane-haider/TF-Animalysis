@@ -1,0 +1,14 @@
+{
+  "parameters": {
+    "f_max": 500,
+    "f_min": 10,
+    "kernel_size": 24000,
+    "num_channels": 1024,
+    "scale": "elelog",
+    "sr": 16000,
+    "stride": 320,
+    "supp_mult": 0.2,
+    "use_torch": false
+  },
+  "representation": "elelet"
+}

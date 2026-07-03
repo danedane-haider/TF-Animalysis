@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from tf_transforms.transforms import Elelet, EleSpectrogram, EleCC
+from tf_transforms.utils_auditory_scales import freqtoaud
 from torchaudio.transforms import MelSpectrogram, MFCC, Spectrogram
 
 SAMPLE_RATE = 16000
@@ -17,7 +18,7 @@ N_FFT = 8192
 HOP_LENGTH = 320
 NUM_CHANNELS = 128
 F_MIN = 5
-F_MAX = 500
+F_MAX = 200
 AUDIO_PATH = PROJECT_ROOT / "data/test_rumbles/ADDO2012A008.WAV_a0014_10.wav"
 
 audio, sr = librosa.load(AUDIO_PATH)
@@ -31,8 +32,10 @@ if len(audio.shape) > 1:
 
 audio_torch = torch.tensor(audio).unsqueeze(0)
 
-# audio_torch = torch.zeros_like(audio_torch)
-# audio_torch[:,32000] = 1.0
+# audio_torch = torch.zeros_like(audio_torch[:, :24000])
+
+
+# audio_torch[:,audio_torch.shape[1]//2] = 1.0
 
 
 
@@ -41,13 +44,13 @@ print("=" * 60)
 print("Test 1: Elelet Transform")
 print("=" * 60)
 elelet_transform = Elelet(
-    kernel_size=N_FFT,
+    kernel_size=16000,
     num_channels=NUM_CHANNELS,
     stride=HOP_LENGTH,
     f_min=F_MIN,
     f_max=F_MAX,
     fs=SAMPLE_RATE,
-    supp_mult=1,
+    supp_mult=0.3,
     scale='elelog',
     use_torch=True,
     pad_mode="reflect",
@@ -64,7 +67,7 @@ print("=" * 60)
 
 mel_spec = EleSpectrogram(
     sample_rate=SAMPLE_RATE,
-    n_fft=N_FFT,
+    n_fft=N_FFT * 4,
     hop_length=HOP_LENGTH,
     f_min=F_MIN,
     f_max=F_MAX,
@@ -150,7 +153,16 @@ spectrogram_transform = Spectrogram(
     power=1.0,
 )
 spectrogram_output = torch.log(spectrogram_transform(audio_torch))
-spectrogram_output = spectrogram_output[:, :F_MAX, :]
+spectrogram_freqs = torch.fft.rfftfreq(N_FFT, d=1.0 / SAMPLE_RATE)
+spectrogram_freq_mask = (spectrogram_freqs >= F_MIN) & (spectrogram_freqs <= F_MAX)
+spectrogram_output = spectrogram_output[:, spectrogram_freq_mask, :]
+spectrogram_freqs = spectrogram_freqs[spectrogram_freq_mask]
+spectrogram_extent = [
+    0,
+    spectrogram_output.shape[-1] - 1,
+    spectrogram_freqs[0].item(),
+    spectrogram_freqs[-1].item(),
+]
 print(f"Spectrogram output shape: {spectrogram_output.shape}")
 
 
@@ -161,31 +173,63 @@ print("\n" + "=" * 60)
 print("Visualizations")
 print("=" * 60)
 
+scale_f_max = max(F_MAX, 200)
+scale_freqs = torch.linspace(F_MIN, scale_f_max, 512)
+scale_curves = {
+    "Linear": scale_freqs,
+    "Mel": freqtoaud(scale_freqs, scale="mel"),
+    "Elelog": freqtoaud(scale_freqs, scale="elelog", fs=SAMPLE_RATE),
+}
+
+fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+for label, curve in scale_curves.items():
+    curve = curve - curve[0]
+    curve = curve / curve[-1]
+    ax.plot(scale_freqs.numpy(), curve.numpy(), label=label)
+
+#ax.axvline(200, color="0.25", linestyle="--", linewidth=1, label="200 Hz")
+ax.set_title("Linear vs Mel vs Elelelog")
+ax.set_xlabel("Frequency [Hz]")
+ax.set_ylabel("Normalized scale position")
+ax.set_xlim(F_MIN, scale_f_max + 0.03 * (scale_f_max - F_MIN))
+ax.grid(True, alpha=0.25)
+ax.legend()
+
+plt.tight_layout()
+plt.savefig(PROJECT_ROOT / "demos/plots/scale_comparison.png")
+plt.show()
+
 fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
 # figure title
 fig.suptitle('Spectrogram vs MelSpectrogram vs EleSpectrogram', fontsize=16)
 
 # Spectrogram
-axes[0].imshow(spectrogram_output[0].numpy(), aspect='auto', origin='lower', cmap='magma')
+axes[0].imshow(
+    spectrogram_output[0].numpy(),
+    aspect='auto',
+    origin='lower',
+    cmap='Greys',
+    extent=spectrogram_extent,
+)
 axes[0].set_title('Spectrogram')
 axes[0].set_ylabel('Hz')
 axes[0].set_xlabel('Time')
 
 # MelSpectrogram
-axes[1].imshow(mel_output_standard[0].numpy(), aspect='auto', origin='lower', cmap='magma')
+axes[1].imshow(mel_output_standard[0].numpy(), aspect='auto', origin='lower', cmap='Greys')
 axes[1].set_title('MelSpectrogram')
 axes[1].set_ylabel('Mel Bin')
 axes[1].set_xlabel('Time')
 
 # EleSpectrogram
-axes[2].imshow(mel_output[0].numpy(), aspect='auto', origin='lower', cmap='magma')
+axes[2].imshow(mel_output[0].numpy(), aspect='auto', origin='lower', cmap='Greys')
 axes[2].set_title('EleSpectrogram')
 axes[2].set_ylabel('EleScale Bin')
 axes[2].set_xlabel('Time')
 
 plt.tight_layout()
-plt.savefig(PROJECT_ROOT / "demos/spectrogram_comparison.png")
+plt.savefig(PROJECT_ROOT / "demos/plots/spectrogram_comparison.png")
 plt.show()
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True, sharey=True)
@@ -193,19 +237,28 @@ fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True, sharey=True)
 fig.suptitle('EleSpectrogram vs Elelet Coefficients', fontsize=16)
 
 # EleSpectrogram
-axes[0].imshow(mel_output[0].numpy(), aspect='auto', origin='lower', cmap='magma')
+axes[0].imshow(mel_output[0].numpy(), aspect='auto', origin='lower', cmap='Greys')
 axes[0].set_title('EleSpectrogram')
 axes[0].set_ylabel('EleScale Bin')
 axes[0].set_xlabel('Time')
 
 # Elelet
-axes[1].imshow(elelet_output[0].numpy(), aspect='auto', origin='lower', cmap='magma')
+elelet_image = elelet_output[0].numpy()
+elelet_vmin, elelet_vmax = torch.quantile(elelet_output[0], torch.tensor([0.05, 0.95])).tolist()
+axes[1].imshow(
+    elelet_image,
+    aspect='auto',
+    origin='lower',
+    cmap='Greys',
+    vmin=elelet_vmin,
+    vmax=elelet_vmax,
+)
 axes[1].set_title('Elelet Coefficients')
 axes[1].set_ylabel('EleScale Bin')
 axes[1].set_xlabel('Time')
 
 plt.tight_layout()
-plt.savefig(PROJECT_ROOT / "demos/ele_spectrogram_vs_elelet.png")
+plt.savefig(PROJECT_ROOT / "demos/plots/ele_spectrogram_vs_elelet.png")
 plt.show()
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True, sharey=True)
@@ -213,17 +266,17 @@ fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True, sharey=True)
 fig.suptitle('MFCC vs EleCC', fontsize=16)
 
 # MFCC
-axes[0].imshow(mfcc_output_standard[0].numpy(), aspect='auto', origin='lower', cmap='magma')
+axes[0].imshow(mfcc_output_standard[0].numpy(), aspect='auto', origin='lower', cmap='Greys')
 axes[0].set_title('MFCC')
 axes[0].set_ylabel('MFCC Bin')
 axes[0].set_xlabel('Time')
 
 # EleCC
-axes[1].imshow(mfcc_output[0].numpy(), aspect='auto', origin='lower', cmap='magma')
+axes[1].imshow(mfcc_output[0].numpy(), aspect='auto', origin='lower', cmap='Greys')
 axes[1].set_title('EleCC')
 axes[1].set_ylabel('EleCC Bin')
 axes[1].set_xlabel('Time')
 
 plt.tight_layout()
-plt.savefig(PROJECT_ROOT / "demos/mfcc_vs_elecc.png")
+plt.savefig(PROJECT_ROOT / "demos/plots/mfcc_vs_elecc.png")
 plt.show()

@@ -21,6 +21,12 @@ def main() -> None:
     parser.add_argument("--input", type=str, required=True, help="Directory with WAV files.")
     parser.add_argument("--output_dir_name", type=str, default=None, help="Output directory under input dir.")
     parser.add_argument(
+        "--use_precomputed_representations",
+        type=str,
+        default=None,
+        help="Path to a precomputed Elelet folder, or a parent containing elelet_*.",
+    )
+    parser.add_argument(
         "--algorithm_name",
         type=str,
         default="elelet",
@@ -64,6 +70,7 @@ def main() -> None:
         elelet_fmax=args.transform_fmax,
         elelet_supp_mult=args.supp_mult,
         elelet_scale=args.scale,
+        use_precomputed_representations=args.use_precomputed_representations,
     )
 
 
