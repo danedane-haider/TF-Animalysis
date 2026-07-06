@@ -873,7 +873,7 @@ Outputs:
     parser.add_argument(
         "--method",
         choices=("spectral", "pyin", "hybrid_elelet", "hybrid_stft"),
-        default="spectral",
+        default="hybrid_elelet",
         help="Extraction method; hybrid_elelet and hybrid_stft are DDSP-oriented rumble trackers.",
     )
     parser.add_argument(
