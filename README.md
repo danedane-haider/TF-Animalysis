@@ -52,6 +52,52 @@ uv run demos/demo_masked_tf.py
 The demos compare STFT, mel, EleSpectrogram, Elelet, MFCC, EleCC, and the
 masked variants on an example rumble.
 
+## F0 extraction workflow
+
+Run all commands from the repository root. The supported extraction workflow
+currently uses the `hybrid_elelet` tracker.
+
+### 1. Resample the audio
+
+Convert the source audio to mono, 16 kHz WAV files in a separate working
+directory:
+
+```bash
+uv run python utils/resample.py \
+  --input /path/to/raw_audio \
+  --output data/rumbles \
+  --sr 16000
+```
+
+### 2. Extract the contours
+
+```bash
+uv run python f0_extraction/extract_f0.py \
+  --input data/rumbles \
+  --method hybrid_elelet
+```
+
+The extractor writes one CSV per WAV to `data/rumbles/f0_hybrid_elelet/` and
+caches the Elelet representations beside the audio for reuse. The CSV
+`frequency` column follows the project's H1 convention; the corresponding
+DDSP F0 is `H1 / 2`.
+
+### 3. Annotate and correct the contours
+
+```bash
+uv run python f0_extraction/annotate_f0.py \
+  --input data/rumbles \
+  --f0_dir f0_hybrid_elelet \
+  --initial_spec_mode elelet
+```
+
+Left-click to add correction points, right-click to remove them, and use `W`
+and `E` to set the voiced region's start and end. Navigate with the arrow keys
+(or `N`/`P`) and press `Q` to save and quit. Corrected contours are written to
+`data/rumbles/f0_corrected/` without changing the extracted source contours.
+See [the detailed F0/F1 workflow](f0_extraction/README.md) for all annotation
+controls and file conventions.
+
 ## EleSpectrogram
 
 `EleSpectrogram` is the closest analogue to
