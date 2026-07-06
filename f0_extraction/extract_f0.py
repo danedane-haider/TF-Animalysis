@@ -74,6 +74,69 @@ def read_metainfo(precomputed_dir: str | Path) -> dict:
         return json.load(file)
 
 
+def elelet_cache_matches_config(cache_dir: str | Path, config) -> bool:
+    """Return whether cache metadata describes the hybrid Elelet transform."""
+    metadata = read_metainfo(cache_dir)
+    if metadata.get("representation") != "elelet":
+        return False
+    parameters = metadata.get("parameters", {})
+    expected = {
+        "sr": config.sr,
+        "stride": config.hop_length,
+        "kernel_size": config.kernel_size,
+        "num_channels": config.num_channels,
+        "f_min": config.transform_fmin,
+        "f_max": config.transform_fmax,
+        "supp_mult": config.supp_mult,
+        "scale": config.scale,
+    }
+    for key, value in expected.items():
+        cached = parameters.get(key)
+        if cached is None:
+            return False
+        if isinstance(value, str):
+            if str(cached) != value:
+                return False
+        elif not np.isclose(float(cached), float(value), rtol=0.0, atol=1e-9):
+            return False
+    return True
+
+
+def resolve_hybrid_elelet_cache(
+    audio_dir: str | Path,
+    config,
+    requested_dir: str | Path | None = None,
+) -> Path:
+    """Reuse a compatible nearby cache or choose a collision-safe new folder."""
+    audio_dir = Path(audio_dir)
+    if requested_dir is not None:
+        requested = Path(requested_dir)
+        path = requested if requested.is_absolute() else audio_dir / requested
+        if path.exists() and not elelet_cache_matches_config(path, config):
+            raise ValueError(
+                f"Requested Elelet cache has incompatible transform metadata: {path}"
+            )
+        return path
+
+    candidates = sorted(path for path in audio_dir.glob("elelet_*") if path.is_dir())
+    compatible = [path for path in candidates if elelet_cache_matches_config(path, config)]
+    if compatible:
+        preferred = audio_dir / representation_dir("elelet", config.transform_fmax)
+        return preferred if preferred in compatible else compatible[0]
+
+    preferred = audio_dir / representation_dir("elelet", config.transform_fmax)
+    if not preferred.exists():
+        return preferred
+
+    # Preserve an older cache with different settings instead of overwriting it.
+    hybrid = audio_dir / representation_dir("elelet_hybrid", config.transform_fmax)
+    if hybrid.exists() and not elelet_cache_matches_config(hybrid, config):
+        raise ValueError(
+            f"No compatible Elelet cache found and fallback path is occupied: {hybrid}"
+        )
+    return hybrid
+
+
 def load_precomputed_representation(
     precomputed_dir: str | Path,
     audio_path: str | Path,
@@ -484,7 +547,7 @@ def extract_f0_from_dataset(
     hybrid_stft_refinement_radius: float = 1.0,
     hybrid_stft_harmonic_bin_radius: int = 2,
     use_precomputed_representations: str | Path | None = None,
-    save_elelet_representations: bool = False,
+    save_elelet_representations: bool = True,
     elelet_representation_dir: str | Path | None = None,
 ) -> None:
     """Extract F1 contours for all WAV files in a directory."""
@@ -497,8 +560,11 @@ def extract_f0_from_dataset(
         raise ValueError(
             "--use_precomputed_representations currently applies only to spectral STFT/Elelet extraction"
         )
-    if save_elelet_representations and method != "hybrid_elelet":
-        raise ValueError("--save_elelet_representations requires --method hybrid_elelet")
+    # Saving is the hybrid-Elelet default; for other methods this option is
+    # intentionally inert so their existing CLI defaults remain unchanged.
+    save_elelet_representations = bool(
+        save_elelet_representations and method == "hybrid_elelet"
+    )
 
     default_algorithm = {
         "pyin": "pyin",
@@ -558,33 +624,38 @@ def extract_f0_from_dataset(
 
     elelet_cache_dir = None
     if save_elelet_representations:
-        requested_cache_dir = (
-            Path(elelet_representation_dir)
-            if elelet_representation_dir is not None
-            else Path(representation_dir("elelet", hybrid_config.transform_fmax))
+        elelet_cache_dir = resolve_hybrid_elelet_cache(
+            audio_dir,
+            hybrid_config,
+            elelet_representation_dir,
         )
-        elelet_cache_dir = (
-            requested_cache_dir
-            if requested_cache_dir.is_absolute()
-            else audio_dir / requested_cache_dir
-        )
-        from f0_extraction.precompute_representations import precompute_elelet
+        missing_cache_files = [
+            path for path in audio_files if not (elelet_cache_dir / f"{path.stem}.npz").exists()
+        ]
+        if missing_cache_files:
+            from f0_extraction.precompute_representations import precompute_elelet
 
-        precompute_elelet(
-            audio_dir=audio_dir,
-            output_dir=elelet_cache_dir,
-            sr=hybrid_config.sr,
-            hop_length=hybrid_config.hop_length,
-            num_channels=hybrid_config.num_channels,
-            kernel_size=hybrid_config.kernel_size,
-            f_max=hybrid_config.transform_fmax,
-            f_min=hybrid_config.transform_fmin,
-            supp_mult=hybrid_config.supp_mult,
-            scale=hybrid_config.scale,
-            backend="fft_decimated",
-            channel_batch_size=hybrid_config.channel_batch_size,
-            skip_existing=True,
-        )
+            print(
+                f"Elelet cache: {len(audio_files) - len(missing_cache_files)}/{len(audio_files)} "
+                f"files available in {elelet_cache_dir}; filling missing files"
+            )
+            precompute_elelet(
+                audio_dir=audio_dir,
+                output_dir=elelet_cache_dir,
+                sr=hybrid_config.sr,
+                hop_length=hybrid_config.hop_length,
+                num_channels=hybrid_config.num_channels,
+                kernel_size=hybrid_config.kernel_size,
+                f_max=hybrid_config.transform_fmax,
+                f_min=hybrid_config.transform_fmin,
+                supp_mult=hybrid_config.supp_mult,
+                scale=hybrid_config.scale,
+                backend="fft_decimated",
+                channel_batch_size=hybrid_config.channel_batch_size,
+                skip_existing=True,
+            )
+        else:
+            print(f"Elelet cache: reusing {len(audio_files)} precomputed files from {elelet_cache_dir}")
 
     print("=" * 60)
     print("F1 SPECTRAL PEAK EXTRACTION")
@@ -743,25 +814,12 @@ def extract_f0_from_dataset(
                         median_kernel=median_kernel,
                     )
 
-            nonzero = np.where(frequency > 0)[0]
-            start_time = float(time[nonzero[0]]) if len(nonzero) else 0.0
-            end_time = float(time[nonzero[-1]]) if len(nonzero) else 0.0
-
             df = pd.DataFrame(
                 {
                     "time": time,
                     "frequency": frequency,
-                    "confidence": confidence,
-                    "start_point": np.full(len(time), start_time),
-                    "end_point": np.full(len(time), end_time),
-                    "representation": pipeline,
-                    "algorithm": algorithm_name,
-                    "frequency_role": "f1_div_2" if divide_by_2 else "f1",
                 }
             )
-            if explicit_f0 is not None:
-                df["f0_hz"] = explicit_f0
-                df["proposal_confidence"] = proposal_confidence
             df.to_csv(output_dir / f"{audio_path.stem}.f0.csv", index=False, float_format="%.6f")
             successful += 1
         except Exception as exc:
@@ -828,8 +886,8 @@ Outputs:
         "--save_elelet_representations",
         "--save-elelet-representations",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Run the existing Elelet precomputer and reuse its cache for extraction and annotation.",
+        default=True,
+        help="Run/reuse the Elelet precomputer for hybrid extraction and annotation (hybrid default: enabled).",
     )
     parser.add_argument(
         "--elelet_representation_dir",

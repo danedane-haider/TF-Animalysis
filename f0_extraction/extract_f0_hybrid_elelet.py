@@ -100,16 +100,7 @@ def main() -> None:
             frame = pd.DataFrame(
                 {
                     "time": result.time,
-                    # Compatibility with the existing annotation/refinement pipeline.
                     "frequency": result.h1_hz,
-                    # Explicit synthesis control: no ambiguous divide-by-two downstream.
-                    "f0_hz": result.f0_hz,
-                    "confidence": result.confidence,
-                    "proposal_confidence": result.proposal_confidence,
-                    "frequency_role": "f1",
-                    "algorithm": "elelet_peak_shrp_power_viterbi",
-                    "selected_h1_min_hz": result.selected_band_hz[0],
-                    "selected_h1_max_hz": result.selected_band_hz[1],
                 }
             )
             frame.to_csv(output / f"{path.stem}.f0.csv", index=False, float_format="%.6f")

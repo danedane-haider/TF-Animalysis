@@ -19,8 +19,8 @@ than a new estimator:
 5. Find the final path with a bounded, lightly quadratic Viterbi transition
    penalty and quadratic sub-grid interpolation. No median filter is applied.
 
-The output keeps project compatibility (`frequency` is H1) and also contains
-an explicit `f0_hz` column for DDSP.
+The CSV output contains only `time` and `frequency`. By default, `frequency`
+keeps the project-compatible H1 convention; DDSP F0 is `frequency / 2`.
 
 ## Tuned Elelet representation
 
@@ -62,10 +62,8 @@ correlation. Per file, however, the hybrid has better FM correlation on 830 of
 is driven by the remaining octave-selection failures.
 
 High-H1 calls above 50 Hz and overlaps remain the main failure modes. The
-output includes both local path confidence and a file-level proposal confidence;
-these should be retained in a DDSP preprocessing cache. Very low-confidence
-calls should be inspected or replaced by the fixed-band path when its range is
-known in advance.
+tracker computes local and proposal confidence internally, but the deliberately
+minimal contour CSV does not store them.
 
 Reproduce the grid and evaluation with:
 

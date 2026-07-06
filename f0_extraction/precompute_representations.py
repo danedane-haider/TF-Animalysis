@@ -234,17 +234,17 @@ def main():
     parser.add_argument('--win_length', type=int, default=None,
                         help='Window length for STFT (default: n_fft)')
     parser.add_argument('--hop_length', type=int, default=320,
-                        help='Hop length for both STFT and Elelet (default: 256)')
+                        help='Hop length for both STFT and Elelet (default: 320)')
     parser.add_argument('--f_max', type=float, default=500,
                         help='Maximum frequency label for precomputed folders and Elelet f_max (Hz, default: 750)')
     parser.add_argument('--num_channels', type=int, default=1024,
                         help='Number of channels for Elelet (default: 1024)')
-    parser.add_argument('--kernel_size', type=int, default=24000,
+    parser.add_argument('--kernel_size', type=int, default=16000,
                         help='Kernel size for Elelet (default: 24000)')
-    parser.add_argument('--f_min', type=float, default=10,
+    parser.add_argument('--f_min', type=float, default=5,
                         help='Minimum frequency for Elelet (Hz, default: 10)')
-    parser.add_argument('--supp_mult', type=float, default=0.2,
-                        help='Support multiplier for Elelet (default: 0.2)')
+    parser.add_argument('--supp_mult', type=float, default=0.3,
+                        help='Support multiplier for Elelet (default: 0.3)')
     parser.add_argument('--scale', type=str, default='elelog',
                         help='Frequency scale for Elelet (default: elelog)')
     parser.add_argument('--elelet_backend', choices=('fft_decimated', 'fft'),

@@ -21,23 +21,24 @@ Elelet tracker:
 ```bash
 python f0_extraction/extract_f0.py \
   --input data/rumbles \
-  --method hybrid_elelet \
-  --save_elelet_representations
+  --method hybrid_elelet
 ```
 
-It writes the existing H1 convention to `frequency` and the unambiguous
-synthesis control to `f0_hz` (`f0_hz = frequency / 2`). Its tuned defaults at
-16 kHz are `kernel_size=16000` and `supp_mult=0.3`. See
+It writes only `time` and `frequency`; `frequency` follows the existing H1
+convention. Its tuned defaults at 16 kHz are `kernel_size=16000` and
+`supp_mult=0.3`. See
 [`HYBRID_ELELET.md`](HYBRID_ELELET.md) for the algorithm and evaluation.
 
-The default output is `f0_hybrid_elelet/`. To write the DDSP F0 into both
-`frequency` and `f0_hz`, add `--divide_by_2`. The dedicated
+The default output is `f0_hybrid_elelet/`. To write DDSP F0 rather than H1 in
+the `frequency` column, add `--divide_by_2`. The dedicated
 `extract_f0_hybrid_elelet.py` entry point remains available as a thin
 algorithm-specific alternative.
 
-With `--save_elelet_representations`, `extract_f0.py` runs the existing
+Saving is enabled by default for `hybrid_elelet`. `extract_f0.py` first checks
+for a nearby cache with matching transform metadata, then runs the existing
 `precompute_representations.py` Elelet workflow with the hybrid parameters,
-writes its canonical cache to `elelet_500/`, and tracks F0 from that cache.
+writes/fills its canonical cache, and tracks F0 from that cache. Use
+`--no-save_elelet_representations` for an in-memory-only run.
 Start correction directly in the cached view with:
 
 ```bash
