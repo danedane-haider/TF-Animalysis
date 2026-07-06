@@ -54,13 +54,12 @@ masked variants on an example rumble.
 
 ## F0 extraction workflow
 
-Run all commands from the repository root. The supported extraction workflow
-currently uses the `hybrid_elelet` tracker.
+Run all commands from the repository root.
 
 ### 1. Resample the audio
 
 Convert the source audio to mono, 16 kHz WAV files in a separate working
-directory:
+directory (optional but recommended):
 
 ```bash
 uv run python utils/resample.py \
@@ -87,8 +86,7 @@ DDSP F0 is `H1 / 2`.
 ```bash
 uv run python f0_extraction/annotate_f0.py \
   --input data/rumbles \
-  --f0_dir f0_hybrid_elelet \
-  --initial_spec_mode elelet
+  --f0_dir f0_hybrid_elelet
 ```
 
 Left-click to add correction points, right-click to remove them, and use `W`
