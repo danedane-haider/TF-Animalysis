@@ -62,7 +62,7 @@ Convert the source audio to mono, 16 kHz WAV files in a separate working
 directory (optional but recommended):
 
 ```bash
-uv run python utils/resample.py \
+uv run utils/resample.py \
   --input /path/to/raw_audio \
   --output data/rumbles \
   --sr 16000
@@ -71,7 +71,7 @@ uv run python utils/resample.py \
 ### 2. Extract the contours
 
 ```bash
-uv run python f0_extraction/extract_f0.py \
+uv run f0_extraction/extract_f0.py \
   --input data/rumbles \
   --method hybrid_elelet
 ```
@@ -84,7 +84,7 @@ DDSP F0 is `H1 / 2`.
 ### 3. Annotate and correct the contours
 
 ```bash
-uv run python f0_extraction/annotate_f0.py \
+uv run f0_extraction/annotate_f0.py \
   --input data/rumbles \
   --f0_dir f0_hybrid_elelet
 ```
