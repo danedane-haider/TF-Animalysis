@@ -400,7 +400,7 @@ def extract_f1_elelet(
     median_kernel: int = 5,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Track the F1 spectral peak in an Elelet magnitude representation."""
-    from tf_transforms.transforms import Elelet
+    from tf_representations.transforms import Elelet
 
     audio = _as_mono(audio)
     transform = Elelet(

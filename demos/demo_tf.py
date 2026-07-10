@@ -9,8 +9,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tf_transforms.transforms import Elelet, EleSpectrogram, EleCC
-from tf_transforms.utils_auditory_scales import freqtoaud
+from tf_representations.transforms import Elelet, EleSpectrogram, EleCC
+from tf_representations.utils_auditory_scales import freqtoaud
 from torchaudio.transforms import MelSpectrogram, MFCC, Spectrogram
 
 SAMPLE_RATE = 16000
@@ -18,7 +18,7 @@ N_FFT = 8192
 HOP_LENGTH = 320
 NUM_CHANNELS = 128
 F_MIN = 5
-F_MAX = 200
+F_MAX = 1000
 AUDIO_PATH = PROJECT_ROOT / "data/test_rumbles/ADDO2012A008.WAV_a0014_10.wav"
 
 audio, sr = librosa.load(AUDIO_PATH)
@@ -44,7 +44,7 @@ print("=" * 60)
 print("Test 1: Elelet Transform")
 print("=" * 60)
 elelet_transform = Elelet(
-    kernel_size=16000,
+    kernel_size=SAMPLE_RATE,
     num_channels=NUM_CHANNELS,
     stride=HOP_LENGTH,
     f_min=F_MIN,
@@ -67,7 +67,7 @@ print("=" * 60)
 
 mel_spec = EleSpectrogram(
     sample_rate=SAMPLE_RATE,
-    n_fft=N_FFT * 4,
+    n_fft=SAMPLE_RATE,
     hop_length=HOP_LENGTH,
     f_min=F_MIN,
     f_max=F_MAX,
@@ -87,7 +87,7 @@ mfcc_transform = EleCC(
     n_mfcc=40,
     log_mels=True,
     melkwargs={
-        "n_fft": N_FFT,
+        "n_fft": SAMPLE_RATE,
         "hop_length": HOP_LENGTH,
         "f_min": F_MIN,
         "f_max": F_MAX,

@@ -9,8 +9,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tf_transforms.transforms import EleSpectrogram, MaskedEleSpectrogram, EleCC, MaskedEleCC
-from tf_transforms.utils_harmonic_mask import load_f0_csv
+from tf_representations.transforms import EleSpectrogram, MaskedEleSpectrogram, EleCC, MaskedEleCC
+from tf_representations.utils_harmonic_mask import load_f0_csv
 
 SAMPLE_RATE = 16000
 AUDIO_PATH = PROJECT_ROOT / "data/test_rumbles/ADDO2012A008.WAV_a0014_10.wav"

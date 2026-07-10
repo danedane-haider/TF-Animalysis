@@ -47,14 +47,14 @@ def _to_numpy(x: torch.Tensor | np.ndarray | float) -> np.ndarray:
 
 
 def _freq_to_aud(freq_hz: np.ndarray | float, scale: str, fs: int) -> np.ndarray:
-    from tf_transforms.utils_auditory_scales import freqtoaud
+    from tf_representations.utils_auditory_scales import freqtoaud
 
     freq_t = torch.as_tensor(freq_hz, dtype=torch.float64)
     return _to_numpy(freqtoaud(freq_t, scale=scale, fs=fs)).astype(np.float64)
 
 
 def _aud_to_freq(aud: np.ndarray | float, scale: str, fs: int) -> np.ndarray:
-    from tf_transforms.utils_auditory_scales import audtofreq
+    from tf_representations.utils_auditory_scales import audtofreq
 
     aud_t = torch.as_tensor(aud, dtype=torch.float64)
     return _to_numpy(audtofreq(aud_t, scale=scale, fs=fs)).astype(np.float64)
@@ -142,7 +142,7 @@ def _compute_elelet_power(
     scale: str,
     power_exp: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    from tf_transforms.transforms import Elelet
+    from tf_representations.transforms import Elelet
 
     transform = Elelet(
         kernel_size=kernel_size,

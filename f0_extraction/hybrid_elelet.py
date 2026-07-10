@@ -81,7 +81,7 @@ class HybridEleletResult:
 
 def make_elelet(config: HybridEleletConfig):
     """Construct the Elelet transform used by the hybrid tracker."""
-    from tf_transforms.transforms import Elelet
+    from tf_representations.transforms import Elelet
 
     return Elelet(
         kernel_size=config.kernel_size,

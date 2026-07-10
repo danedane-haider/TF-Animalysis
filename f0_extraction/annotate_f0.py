@@ -221,7 +221,7 @@ class F0Corrector:
             return
 
         import torch
-        from tf_transforms.transforms import Elelet
+        from tf_representations.transforms import Elelet
 
         self.elelet_transform = Elelet(
             kernel_size=16000+8000,

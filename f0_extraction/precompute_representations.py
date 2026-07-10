@@ -121,7 +121,7 @@ def precompute_elelet(audio_dir, output_dir, sr=16000, hop_length=256,
                       channel_batch_size=None, skip_existing=True, start_idx=0):
     """Pre-compute and save Elelet representations for all audio files"""
     import torch
-    from tf_transforms.transforms import Elelet
+    from tf_representations.transforms import Elelet
 
     audio_dir = Path(audio_dir)
     output_dir = Path(output_dir)
