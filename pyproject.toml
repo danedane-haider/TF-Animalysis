@@ -1,26 +1,76 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "tf-animalysis"
 version = "0.1.0"
-description = "Add your description here"
+description = "Time-frequency analysis tools for animal vocalizations"
 readme = "README.md"
 requires-python = ">=3.13"
+license = "MIT"
+authors = [
+    { name = "Daniel Haider" }
+]
+keywords = [
+    "bioacoustics",
+    "audio",
+    "time-frequency analysis",
+    "elephant vocalizations",
+    "signal processing",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
+
 dependencies = [
+    "hybra>=2025.11.2",
+    "librosa",
+    "matplotlib",
     "numpy",
-    "pandas",
-    "pillow",
-    "tqdm",
-    "easydict",
-    "omegaconf",
+    "scipy",
+    "soundfile",
     "torch",
     "torchaudio",
-    "torchvision",
-    "librosa",
-    "soundfile",
-    "scipy",
-    "hybra>=2025.11.2",
-    "wandb>=0.23.0",
-    "torchcodec",
-    "sounddevice>=0.5.3",
+]
+
+[project.optional-dependencies]
+analysis = [
+    "easydict",
+    "omegaconf",
+    "pandas",
     "pesto-pitch>=2.0.1",
+    "pillow",
+    "sounddevice>=0.5.3",
+    "torchcodec",
+    "torchvision",
+    "tqdm",
     "umap-learn>=0.5.12",
+    "wandb>=0.23.0",
+]
+
+dev = [
+    "build",
+    "pytest",
+    "ruff",
+    "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/danedane-haider/TF-Animalysis"
+Repository = "https://github.com/danedane-haider/TF-Animalysis"
+Issues = "https://github.com/danedane-haider/TF-Animalysis/issues"
+
+[tool.setuptools.packages.find]
+include = ["tf_representations*"]
+exclude = [
+    "data*",
+    "demos*",
+    "f0_extraction*",
+    "tests*",
+    "utils*",
 ]
